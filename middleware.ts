@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import {
+  FAMILYBUDDY_LAUNCH_COOKIE,
+  resolveFamilyBuddyLaunchSecret,
+  verifyFamilyBuddyLaunchToken,
+} from '@/lib/server/familybuddy-launch-token';
 
 /** Convert string to Uint8Array */
 function encode(str: string): Uint8Array {
@@ -58,6 +63,34 @@ export async function middleware(request: NextRequest) {
   const cookie = request.cookies.get('openmaic_access');
   if (cookie?.value && (await verifyToken(cookie.value, accessCode))) {
     return NextResponse.next();
+  }
+
+  const launchSecret = resolveFamilyBuddyLaunchSecret(accessCode);
+  const launchCookie = request.cookies.get(FAMILYBUDDY_LAUNCH_COOKIE);
+  if (
+    launchCookie?.value &&
+    (await verifyFamilyBuddyLaunchToken(launchCookie.value, launchSecret)).ok
+  ) {
+    return NextResponse.next();
+  }
+
+  const launchToken = request.nextUrl.searchParams.get('fbToken') || undefined;
+  if (request.nextUrl.searchParams.get('familyBuddy') === '1' && launchToken) {
+    const verification = await verifyFamilyBuddyLaunchToken(launchToken, launchSecret);
+    if (verification.ok) {
+      const cleanUrl = request.nextUrl.clone();
+      cleanUrl.searchParams.delete('fbToken');
+      const response = NextResponse.redirect(cleanUrl);
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      response.cookies.set(FAMILYBUDDY_LAUNCH_COOKIE, launchToken, {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: Math.max(0, verification.payload.exp - nowSeconds),
+        secure: process.env.NODE_ENV === 'production',
+      });
+      return response;
+    }
   }
 
   // API requests without valid cookie → 401
