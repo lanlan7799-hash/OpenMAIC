@@ -40,6 +40,12 @@ export const WEB_SEARCH_PROVIDERS: Record<WebSearchProviderId, WebSearchProvider
     endpointPath: '/v2/ai_search/web_search',
     icon: '/logos/baidu.png',
   },
+  'familybuddy-web-search': {
+    id: 'familybuddy-web-search',
+    name: 'FamilyBuddy Managed Search',
+    requiresApiKey: true,
+    endpointPath: '/web-search',
+  },
 };
 
 export const BAIDU_SUB_SOURCES: Record<

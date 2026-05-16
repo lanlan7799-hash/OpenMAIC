@@ -5,7 +5,12 @@
 /**
  * Web Search Provider IDs
  */
-export type WebSearchProviderId = 'tavily' | 'bocha' | 'brave' | 'baidu';
+export type WebSearchProviderId =
+  | 'tavily'
+  | 'bocha'
+  | 'brave'
+  | 'baidu'
+  | 'familybuddy-web-search';
 
 /**
  * Baidu sub-source toggles

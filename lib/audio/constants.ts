@@ -944,6 +944,17 @@ export const TTS_PROVIDERS: Record<BuiltInTTSProviderId, TTSProviderConfig> = {
     speedRange: { min: 0.1, max: 10.0, default: 1.0 },
   },
 
+  'familybuddy-tts': {
+    id: 'familybuddy-tts',
+    name: 'FamilyBuddy Managed TTS',
+    requiresApiKey: true,
+    models: [{ id: 'familybuddy-managed-tts', name: 'FamilyBuddy Managed TTS' }],
+    defaultModelId: 'familybuddy-managed-tts',
+    voices: [{ id: 'default', name: '默认', language: 'zh-CN', gender: 'neutral' }],
+    supportedFormats: ['mp3', 'wav'],
+    speedRange: { min: 0.25, max: 4.0, default: 1.0 },
+  },
+
   'lemonade-tts': {
     id: 'lemonade-tts',
     name: 'Lemonade TTS',
@@ -1241,6 +1252,16 @@ export const ASR_PROVIDERS: Record<BuiltInASRProviderId, ASRProviderConfig> = {
     supportedLanguages: CUSTOM_ASR_DEFAULT_LANGUAGES,
     supportedFormats: ['wav'],
   },
+
+  'familybuddy-asr': {
+    id: 'familybuddy-asr',
+    name: 'FamilyBuddy Managed ASR',
+    requiresApiKey: true,
+    models: [{ id: 'familybuddy-managed-asr', name: 'FamilyBuddy Managed ASR' }],
+    defaultModelId: 'familybuddy-managed-asr',
+    supportedLanguages: ['auto', 'zh', 'en'],
+    supportedFormats: ['webm', 'wav', 'mp3', 'm4a'],
+  },
 };
 
 /**
@@ -1258,6 +1279,7 @@ export const DEFAULT_TTS_VOICES: Record<BuiltInTTSProviderId, string> = {
   'minimax-tts': 'female-yujie',
   'lemonade-tts': 'af_heart',
   'browser-native-tts': 'default',
+  'familybuddy-tts': 'default',
 };
 
 export const DEFAULT_TTS_MODELS: Record<BuiltInTTSProviderId, string> = {
@@ -1271,6 +1293,7 @@ export const DEFAULT_TTS_MODELS: Record<BuiltInTTSProviderId, string> = {
   'minimax-tts': 'speech-2.8-hd',
   'lemonade-tts': 'kokoro-v1',
   'browser-native-tts': '',
+  'familybuddy-tts': 'familybuddy-managed-tts',
 };
 
 /**

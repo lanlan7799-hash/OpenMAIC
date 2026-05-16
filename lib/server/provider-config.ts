@@ -109,6 +109,14 @@ const WEB_SEARCH_ENV_MAP: Record<string, string> = {
   BAIDU: 'baidu',
 };
 
+const FAMILYBUDDY_MANAGED_MODELS = {
+  llm: 'familybuddy-managed',
+  image: 'familybuddy-managed-image',
+  video: 'familybuddy-managed-video',
+  tts: 'familybuddy-managed-tts',
+  asr: 'familybuddy-managed-asr',
+} as const;
+
 // ---------------------------------------------------------------------------
 // YAML loading
 // ---------------------------------------------------------------------------
@@ -236,6 +244,96 @@ function applyOpenAIImageFallback(
   return imageConfig;
 }
 
+function getFamilyBuddyRelayConfig() {
+  const explicitBaseUrl =
+    process.env.FAMILYBUDDY_RELAY_BASE_URL ||
+    process.env.OPENMAIC_AI_RELAY_BASE_URL ||
+    process.env.FAMILYBUDDY_OPENMAIC_RELAY_BASE_URL;
+  const openAiBaseUrl = process.env.OPENAI_BASE_URL;
+  const baseUrl = explicitBaseUrl || (
+    openAiBaseUrl?.includes('/api/openmaic/ai/v1') ? openAiBaseUrl : undefined
+  );
+  const apiKey =
+    process.env.FAMILYBUDDY_RELAY_TOKEN ||
+    process.env.OPENMAIC_AI_RELAY_TOKEN ||
+    process.env.OPENAI_API_KEY ||
+    process.env.OPENMAIC_LAUNCH_SECRET;
+
+  if (!baseUrl || !apiKey) {
+    return null;
+  }
+
+  return {
+    baseUrl: baseUrl.replace(/\/$/, ''),
+    apiKey,
+  };
+}
+
+function applyFamilyBuddyManagedRelay(config: ServerConfig): ServerConfig {
+  const relay = getFamilyBuddyRelayConfig();
+
+  if (!relay) {
+    return config;
+  }
+
+  return {
+    providers: {
+      ...config.providers,
+      openai: {
+        apiKey: relay.apiKey,
+        baseUrl: relay.baseUrl,
+        models: [FAMILYBUDDY_MANAGED_MODELS.llm],
+      },
+    },
+    image: {
+      ...config.image,
+      'familybuddy-image': {
+        apiKey: relay.apiKey,
+        baseUrl: relay.baseUrl,
+        models: [FAMILYBUDDY_MANAGED_MODELS.image],
+      },
+    },
+    video: {
+      ...config.video,
+      'familybuddy-video': {
+        apiKey: relay.apiKey,
+        baseUrl: relay.baseUrl,
+        models: [FAMILYBUDDY_MANAGED_MODELS.video],
+      },
+    },
+    tts: {
+      ...config.tts,
+      'familybuddy-tts': {
+        apiKey: relay.apiKey,
+        baseUrl: relay.baseUrl,
+        models: [FAMILYBUDDY_MANAGED_MODELS.tts],
+      },
+    },
+    asr: {
+      ...config.asr,
+      'familybuddy-asr': {
+        apiKey: relay.apiKey,
+        baseUrl: relay.baseUrl,
+        models: [FAMILYBUDDY_MANAGED_MODELS.asr],
+      },
+    },
+    pdf: {
+      ...config.pdf,
+      'familybuddy-pdf': {
+        apiKey: relay.apiKey,
+        baseUrl: relay.baseUrl,
+      },
+    },
+    webSearch: {
+      ...config.webSearch,
+      'familybuddy-web-search': {
+        apiKey: relay.apiKey,
+        baseUrl: relay.baseUrl,
+      },
+    },
+  };
+}
+
 function buildConfig(yamlData: YamlData): ServerConfig {
   const image = applyOpenAIImageFallback(
     loadEnvSection(IMAGE_ENV_MAP, yamlData.image, {
@@ -244,7 +342,7 @@ function buildConfig(yamlData: YamlData): ServerConfig {
     yamlData.image,
   );
 
-  return {
+  return applyFamilyBuddyManagedRelay({
     providers: loadEnvSection(LLM_ENV_MAP, yamlData.providers, {
       keylessProviders: new Set(['ollama', 'lemonade']),
     }),
@@ -258,7 +356,7 @@ function buildConfig(yamlData: YamlData): ServerConfig {
     image,
     video: loadEnvSection(VIDEO_ENV_MAP, yamlData.video),
     webSearch: loadEnvSection(WEB_SEARCH_ENV_MAP, yamlData['web-search']),
-  };
+  });
 }
 
 function logConfig(config: ServerConfig, label: string): void {

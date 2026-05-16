@@ -22,6 +22,7 @@ const OFFICIAL_CLIENT_BASE_URLS: Record<WebSearchProviderId, string[]> = {
     'https://api.search.brave.com',
   ],
   baidu: ['https://qianfan.baidubce.com'],
+  'familybuddy-web-search': [],
 };
 
 function normalizeBaseUrl(value: string): string {
@@ -50,6 +51,9 @@ export function resolveSafeClientWebSearchBaseUrl(
   }
 
   const allowed = OFFICIAL_CLIENT_BASE_URLS[providerId].map(normalizeBaseUrl);
+  if (providerId === 'familybuddy-web-search') {
+    return normalized;
+  }
   if (!allowed.includes(normalized)) {
     throw new Error(`Unsupported ${WEB_SEARCH_PROVIDERS[providerId].name} base URL`);
   }

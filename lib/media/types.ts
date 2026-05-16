@@ -78,7 +78,8 @@ export type ImageProviderId =
   | 'nano-banana'
   | 'minimax-image'
   | 'grok-image'
-  | 'lemonade';
+  | 'lemonade'
+  | 'familybuddy-image';
 // Add new image providers below (uncomment and modify):
 // | 'dall-e'
 // | 'midjourney'
@@ -194,7 +195,8 @@ export type VideoProviderId =
   | 'sora'
   | 'minimax-video'
   | 'grok-video'
-  | 'happyhorse';
+  | 'happyhorse'
+  | 'familybuddy-video';
 // Add new video providers below (uncomment and modify):
 // | 'runway'
 // | 'pika'

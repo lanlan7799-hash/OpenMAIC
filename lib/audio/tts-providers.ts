@@ -167,6 +167,9 @@ export async function generateTTS(
     case 'lemonade-tts':
       return await generateLemonadeTTS(config, text);
 
+    case 'familybuddy-tts':
+      return await generateFamilyBuddyTTS(config, text);
+
     case 'browser-native-tts':
       throw new Error(
         'Browser Native TTS must be handled client-side using Web Speech API. This provider cannot be used on the server.',
@@ -253,6 +256,54 @@ async function generateLemonadeTTS(
 
   const arrayBuffer = await response.arrayBuffer();
   const contentType = response.headers.get('content-type') || '';
+  return {
+    audio: new Uint8Array(arrayBuffer),
+    format: getAudioResponseFormat(contentType),
+  };
+}
+
+async function generateFamilyBuddyTTS(
+  config: TTSModelConfig,
+  text: string,
+): Promise<TTSGenerationResult> {
+  const baseUrl = config.baseUrl?.replace(/\/$/, '');
+  if (!baseUrl) {
+    throw new Error('FamilyBuddy TTS relay base URL is required');
+  }
+
+  const response = await fetch(`${baseUrl}/audio/speech`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json; charset=utf-8',
+    },
+    body: JSON.stringify({
+      model: config.modelId || 'familybuddy-managed-tts',
+      input: text,
+      voice: config.voice || 'default',
+      speed: config.speed || 1.0,
+      response_format: config.format || 'mp3',
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`FamilyBuddy TTS API error: ${await readTTSApiError(response)}`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (contentType.includes('application/json')) {
+    const data = await response.json();
+    const base64 = data.base64 || data.audio || data.data?.[0]?.b64_json;
+    if (typeof base64 !== 'string' || !base64) {
+      throw new Error('FamilyBuddy TTS relay returned empty audio response');
+    }
+    return {
+      audio: new Uint8Array(Buffer.from(base64, 'base64')),
+      format: typeof data.format === 'string' ? data.format : 'mp3',
+    };
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
   return {
     audio: new Uint8Array(arrayBuffer),
     format: getAudioResponseFormat(contentType),

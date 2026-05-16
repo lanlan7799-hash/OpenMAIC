@@ -34,6 +34,13 @@ export const PDF_PROVIDERS: Record<PDFProviderId, PDFProviderConfig> = {
     icon: '/logos/mineru.png',
     features: ['text', 'images', 'tables', 'formulas', 'layout-analysis'],
   },
+
+  'familybuddy-pdf': {
+    id: 'familybuddy-pdf',
+    name: 'FamilyBuddy Managed PDF',
+    requiresApiKey: true,
+    features: ['text', 'images', 'metadata'],
+  },
 };
 
 /**

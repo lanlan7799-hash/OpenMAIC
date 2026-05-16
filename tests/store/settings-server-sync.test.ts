@@ -74,6 +74,15 @@ vi.mock('@/lib/audio/constants', () => ({
       supportedFormats: ['browser'],
       speedRange: { min: 0.1, max: 10, default: 1 },
     },
+    'familybuddy-tts': {
+      id: 'familybuddy-tts',
+      name: 'FamilyBuddy TTS',
+      requiresApiKey: true,
+      defaultModelId: 'familybuddy-managed-tts',
+      models: [{ id: 'familybuddy-managed-tts', name: 'FamilyBuddy Managed TTS' }],
+      voices: [{ id: 'default', name: 'Default', language: 'zh', gender: 'neutral' }],
+      supportedFormats: ['mp3'],
+    },
   },
   ASR_PROVIDERS: {
     'openai-whisper': {
@@ -94,10 +103,20 @@ vi.mock('@/lib/audio/constants', () => ({
       supportedLanguages: ['zh'],
       supportedFormats: ['browser'],
     },
+    'familybuddy-asr': {
+      id: 'familybuddy-asr',
+      name: 'FamilyBuddy ASR',
+      requiresApiKey: true,
+      defaultModelId: 'familybuddy-managed-asr',
+      models: [{ id: 'familybuddy-managed-asr', name: 'FamilyBuddy Managed ASR' }],
+      supportedLanguages: ['auto', 'zh'],
+      supportedFormats: ['webm', 'wav', 'mp3'],
+    },
   },
   DEFAULT_TTS_VOICES: {
     'openai-tts': 'alloy',
     'browser-native-tts': 'default',
+    'familybuddy-tts': 'default',
   },
 }));
 
@@ -110,6 +129,7 @@ vi.mock('@/lib/pdf/constants', () => ({
   PDF_PROVIDERS: {
     unpdf: { id: 'unpdf', requiresApiKey: false },
     mineru: { id: 'mineru', requiresApiKey: false },
+    'familybuddy-pdf': { id: 'familybuddy-pdf', requiresApiKey: true },
   },
 }));
 
@@ -125,6 +145,11 @@ vi.mock('@/lib/media/image-providers', () => ({
       requiresApiKey: true,
       models: [{ id: 'qwen-image-max', name: 'Qwen Image Max' }],
     },
+    'familybuddy-image': {
+      id: 'familybuddy-image',
+      requiresApiKey: true,
+      models: [{ id: 'familybuddy-managed-image', name: 'FamilyBuddy Managed Image' }],
+    },
   },
 }));
 
@@ -139,6 +164,11 @@ vi.mock('@/lib/media/video-providers', () => ({
       id: 'kling',
       requiresApiKey: true,
       models: [{ id: 'kling-v2-6', name: 'Kling V2' }],
+    },
+    'familybuddy-video': {
+      id: 'familybuddy-video',
+      requiresApiKey: true,
+      models: [{ id: 'familybuddy-managed-video', name: 'FamilyBuddy Managed Video' }],
     },
   },
 }));
@@ -1015,6 +1045,65 @@ describe('fetchServerProviders — LLM cross-provider fallback', () => {
 
     expect(store.getState().providerId).toBe('anthropic');
     expect(store.getState().modelId).toBe('claude-sonnet-4-6');
+  });
+});
+
+describe('fetchServerProviders — FamilyBuddy embedded managed mode', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    storage.clear();
+    mockFetch.mockReset();
+    vi.stubGlobal('window', {
+      localStorage: localStorageStub,
+      location: { search: '?familyBuddy=1&embedded=1' },
+    });
+  });
+
+  async function getStore() {
+    const { useSettingsStore } = await import('@/lib/store/settings');
+    return useSettingsStore;
+  }
+
+  it('locks all model-capability providers to FamilyBuddy managed entries', async () => {
+    const store = await getStore();
+
+    store.getState().setModel('anthropic', 'claude-sonnet-4-6');
+    store.getState().setImageProvider('seedream');
+    store.getState().setVideoProvider('seedance');
+    store.getState().setTTSProvider('browser-native-tts');
+    store.getState().setASRProvider('browser-native');
+    store.getState().setPDFProvider('unpdf');
+    store.getState().setWebSearchProvider('tavily');
+
+    mockServerResponse({
+      providers: { openai: { models: ['familybuddy-managed'] } },
+      image: { 'familybuddy-image': { baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1' } },
+      video: { 'familybuddy-video': { baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1' } },
+      tts: { 'familybuddy-tts': { baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1' } },
+      asr: { 'familybuddy-asr': { baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1' } },
+      pdf: { 'familybuddy-pdf': { baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1' } },
+      webSearch: {
+        'familybuddy-web-search': { baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1' },
+      },
+    });
+
+    await store.getState().fetchServerProviders();
+
+    expect(store.getState()).toMatchObject({
+      providerId: 'openai',
+      modelId: 'familybuddy-managed',
+      imageProviderId: 'familybuddy-image',
+      imageModelId: 'familybuddy-managed-image',
+      videoProviderId: 'familybuddy-video',
+      videoModelId: 'familybuddy-managed-video',
+      ttsProviderId: 'familybuddy-tts',
+      ttsVoice: 'default',
+      asrProviderId: 'familybuddy-asr',
+      pdfProviderId: 'familybuddy-pdf',
+      webSearchProviderId: 'familybuddy-web-search',
+      imageGenerationEnabled: true,
+      videoGenerationEnabled: true,
+    });
   });
 });
 

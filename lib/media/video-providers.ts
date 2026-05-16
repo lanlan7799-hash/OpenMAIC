@@ -118,6 +118,16 @@ export const VIDEO_PROVIDERS: Record<VideoProviderId, VideoProviderConfig> = {
     supportedResolutions: ['720p', '1080p'],
     maxDuration: 15,
   },
+  'familybuddy-video': {
+    id: 'familybuddy-video',
+    name: 'FamilyBuddy Managed Video',
+    requiresApiKey: true,
+    models: [{ id: 'familybuddy-managed-video', name: 'FamilyBuddy Managed Video' }],
+    supportedAspectRatios: ['16:9', '4:3', '1:1', '9:16'],
+    supportedDurations: [5, 10],
+    supportedResolutions: ['720p', '1080p'],
+    maxDuration: 10,
+  },
 };
 
 export async function testVideoConnectivity(
@@ -136,6 +146,13 @@ export async function testVideoConnectivity(
       return testGrokVideoConnectivity(config);
     case 'happyhorse':
       return testHappyHorseConnectivity(config);
+    case 'familybuddy-video':
+      return {
+        success: Boolean(config.apiKey && config.baseUrl),
+        message: config.apiKey && config.baseUrl
+          ? 'Connected to FamilyBuddy video relay'
+          : 'FamilyBuddy video relay is not configured',
+      };
     default:
       return {
         success: false,
@@ -203,7 +220,53 @@ export async function generateVideo(
       return generateWithGrokVideo(config, options);
     case 'happyhorse':
       return generateWithHappyHorse(config, options);
+    case 'familybuddy-video':
+      return generateWithFamilyBuddyVideo(config, options);
     default:
       throw new Error(`Unsupported video provider: ${config.providerId}`);
   }
+}
+
+async function generateWithFamilyBuddyVideo(
+  config: VideoGenerationConfig,
+  options: VideoGenerationOptions,
+): Promise<VideoGenerationResult> {
+  const baseUrl = config.baseUrl?.replace(/\/$/, '');
+  if (!baseUrl) {
+    throw new Error('FamilyBuddy video relay base URL is required');
+  }
+
+  const response = await fetch(`${baseUrl}/videos/generations`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model || 'familybuddy-managed-video',
+      prompt: options.prompt,
+      duration: options.duration,
+      aspect_ratio: options.aspectRatio,
+      resolution: options.resolution,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => response.statusText);
+    throw new Error(`FamilyBuddy video generation failed (${response.status}): ${text}`);
+  }
+
+  const data = await response.json();
+  const result = data.result ?? data.data?.[0] ?? data;
+  const url = result.url ?? result.video_url ?? result.output_url;
+  if (!url) {
+    throw new Error('FamilyBuddy video relay returned empty video response');
+  }
+
+  return {
+    url,
+    width: Number(result.width) || 1280,
+    height: Number(result.height) || 720,
+    duration: Number(result.duration) || options.duration || 5,
+  };
 }

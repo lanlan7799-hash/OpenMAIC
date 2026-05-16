@@ -182,6 +182,10 @@ export async function parsePDF(
       result = await parseWithMinerUCloud(config, pdfBuffer);
       break;
 
+    case 'familybuddy-pdf':
+      result = await parseWithFamilyBuddyPDF(config, pdfBuffer);
+      break;
+
     default:
       throw new Error(`Unsupported PDF provider: ${config.providerId}`);
   }
@@ -192,6 +196,34 @@ export async function parsePDF(
   }
 
   return result;
+}
+
+async function parseWithFamilyBuddyPDF(
+  config: PDFParserConfig,
+  pdfBuffer: Buffer,
+): Promise<ParsedPdfContent> {
+  const baseUrl = config.baseUrl?.replace(/\/$/, '');
+  if (!baseUrl) {
+    throw new Error('FamilyBuddy PDF relay base URL is required');
+  }
+
+  const formData = new FormData();
+  const blob = new Blob([new Uint8Array(pdfBuffer)], { type: 'application/pdf' });
+  formData.set('file', blob, 'document.pdf');
+
+  const response = await fetch(`${baseUrl}/pdf/parse`, {
+    method: 'POST',
+    headers: config.apiKey ? { Authorization: `Bearer ${config.apiKey}` } : undefined,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => response.statusText);
+    throw new Error(`FamilyBuddy PDF parse failed (${response.status}): ${text}`);
+  }
+
+  const payload = await response.json();
+  return (payload.data ?? payload.result ?? payload) as ParsedPdfContent;
 }
 
 /**

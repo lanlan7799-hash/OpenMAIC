@@ -88,7 +88,8 @@ export type BuiltInTTSProviderId =
   | 'elevenlabs-tts'
   | 'minimax-tts'
   | 'lemonade-tts'
-  | 'browser-native-tts';
+  | 'browser-native-tts'
+  | 'familybuddy-tts';
 
 export type TTSProviderId = BuiltInTTSProviderId | `custom-tts-${string}`;
 
@@ -156,7 +157,8 @@ export type BuiltInASRProviderId =
   | 'openai-whisper'
   | 'browser-native'
   | 'qwen-asr'
-  | 'lemonade-asr';
+  | 'lemonade-asr'
+  | 'familybuddy-asr';
 
 export type ASRProviderId = BuiltInASRProviderId | `custom-asr-${string}`;
 

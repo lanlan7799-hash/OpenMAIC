@@ -368,6 +368,12 @@ const getDefaultAudioConfig = () => ({
       modelId: 'kokoro-v1',
       enabled: false,
     },
+    'familybuddy-tts': {
+      apiKey: '',
+      baseUrl: '',
+      modelId: 'familybuddy-managed-tts',
+      enabled: false,
+    },
     'browser-native-tts': { apiKey: '', baseUrl: '', enabled: true },
   } as Record<
     TTSProviderId,
@@ -378,6 +384,12 @@ const getDefaultAudioConfig = () => ({
     'browser-native': { apiKey: '', baseUrl: '', enabled: true },
     'qwen-asr': { apiKey: '', baseUrl: '', enabled: false },
     'lemonade-asr': { apiKey: '', baseUrl: '', enabled: false },
+    'familybuddy-asr': {
+      apiKey: '',
+      baseUrl: '',
+      modelId: 'familybuddy-managed-asr',
+      enabled: false,
+    },
   } as Record<ASRProviderId, { apiKey: string; baseUrl: string; enabled: boolean }>,
 });
 
@@ -388,6 +400,7 @@ const getDefaultPDFConfig = () => ({
     unpdf: { apiKey: '', baseUrl: '', enabled: true },
     mineru: { apiKey: '', baseUrl: '', enabled: false },
     'mineru-cloud': { apiKey: '', baseUrl: '', enabled: false },
+    'familybuddy-pdf': { apiKey: '', baseUrl: '', enabled: false },
   } as Record<PDFProviderId, { apiKey: string; baseUrl: string; enabled: boolean }>,
 });
 
@@ -403,6 +416,7 @@ const getDefaultImageConfig = () => ({
     'minimax-image': { apiKey: '', baseUrl: '', enabled: false },
     'grok-image': { apiKey: '', baseUrl: '', enabled: false },
     lemonade: { apiKey: '', baseUrl: '', enabled: false },
+    'familybuddy-image': { apiKey: '', baseUrl: '', enabled: false },
   } as Record<ImageProviderId, { apiKey: string; baseUrl: string; enabled: boolean }>,
 });
 
@@ -418,6 +432,7 @@ const getDefaultVideoConfig = () => ({
     'minimax-video': { apiKey: '', baseUrl: '', enabled: false },
     'grok-video': { apiKey: '', baseUrl: '', enabled: false },
     happyhorse: { apiKey: '', baseUrl: '', enabled: false },
+    'familybuddy-video': { apiKey: '', baseUrl: '', enabled: false },
   } as Record<VideoProviderId, { apiKey: string; baseUrl: string; enabled: boolean }>,
 });
 
@@ -434,6 +449,12 @@ const getDefaultWebSearchConfig = () => ({
       requiresApiKey: false,
     },
     baidu: { apiKey: '', baseUrl: '', enabled: true, requiresApiKey: true },
+    'familybuddy-web-search': {
+      apiKey: '',
+      baseUrl: '',
+      enabled: true,
+      requiresApiKey: true,
+    },
   } as Record<
     WebSearchProviderId,
     { apiKey: string; baseUrl: string; enabled: boolean; requiresApiKey?: boolean }
@@ -444,6 +465,34 @@ const getDefaultWebSearchConfig = () => ({
     scholar: true,
   } as BaiduSubSources,
 });
+
+export function isFamilyBuddyEmbeddedMode(): boolean {
+  if (typeof window === 'undefined') return false;
+
+  const locationLike = window.location as Location | undefined;
+  const search = locationLike?.search || '';
+  const params = new URLSearchParams(search);
+
+  return params.get('familyBuddy') === '1' || params.get('embedded') === '1';
+}
+
+function getFamilyBuddyManagedSelection() {
+  return {
+    providerId: 'openai' as ProviderId,
+    modelId: 'familybuddy-managed',
+    imageProviderId: 'familybuddy-image' as ImageProviderId,
+    imageModelId: 'familybuddy-managed-image',
+    videoProviderId: 'familybuddy-video' as VideoProviderId,
+    videoModelId: 'familybuddy-managed-video',
+    ttsProviderId: 'familybuddy-tts' as TTSProviderId,
+    ttsVoice: 'default',
+    asrProviderId: 'familybuddy-asr' as ASRProviderId,
+    pdfProviderId: 'familybuddy-pdf' as PDFProviderId,
+    webSearchProviderId: 'familybuddy-web-search' as WebSearchProviderId,
+    imageGenerationEnabled: true,
+    videoGenerationEnabled: true,
+  };
+}
 
 /**
  * Check whether a provider ID exists in the given provider registry.
@@ -618,6 +667,17 @@ function ensureBuiltInVideoProviders(state: Partial<SettingsState>): void {
   });
 }
 
+function ensureBuiltInPDFProviders(state: Partial<SettingsState>): void {
+  if (!state.pdfProvidersConfig) return;
+  const defaultConfig = getDefaultPDFConfig().pdfProvidersConfig;
+  Object.keys(PDF_PROVIDERS).forEach((pid) => {
+    const providerId = pid as PDFProviderId;
+    if (!state.pdfProvidersConfig![providerId]) {
+      state.pdfProvidersConfig![providerId] = defaultConfig[providerId];
+    }
+  });
+}
+
 /**
  * Ensure webSearchProvidersConfig includes all built-in web search providers.
  * Called on every rehydrate so newly added providers appear automatically.
@@ -783,7 +843,14 @@ export const useSettingsStore = create<SettingsState>()(
         ...defaultWebSearchConfig,
 
         // Actions
-        setModel: (providerId, modelId) => set({ providerId, modelId }),
+        setModel: (providerId, modelId) => {
+          if (isFamilyBuddyEmbeddedMode()) {
+            const managed = getFamilyBuddyManagedSelection();
+            set({ providerId: managed.providerId, modelId: managed.modelId });
+            return;
+          }
+          set({ providerId, modelId });
+        },
 
         setThinkingConfig: (providerId, modelId, config) =>
           set((state) => {
@@ -842,6 +909,12 @@ export const useSettingsStore = create<SettingsState>()(
         // Audio actions
         setTTSProvider: (providerId) =>
           set((state) => {
+            if (isFamilyBuddyEmbeddedMode()) {
+              return {
+                ttsProviderId: 'familybuddy-tts' as TTSProviderId,
+                ttsVoice: 'default',
+              };
+            }
             // If switching provider, set default voice for that provider
             const shouldUpdateVoice = state.ttsProviderId !== providerId;
             const defaultVoice = isCustomTTSProvider(providerId)
@@ -861,6 +934,12 @@ export const useSettingsStore = create<SettingsState>()(
         // (e.g. browser-native uses BCP-47 "en-US", OpenAI Whisper uses ISO 639-1 "en")
         setASRProvider: (providerId) =>
           set((state) => {
+            if (isFamilyBuddyEmbeddedMode()) {
+              return {
+                asrProviderId: 'familybuddy-asr' as ASRProviderId,
+                asrLanguage: state.asrLanguage,
+              };
+            }
             let supportedLanguages: string[];
             if (isCustomASRProvider(providerId)) {
               supportedLanguages = ['auto'];
@@ -900,7 +979,13 @@ export const useSettingsStore = create<SettingsState>()(
           })),
 
         // PDF actions
-        setPDFProvider: (providerId) => set({ pdfProviderId: providerId }),
+        setPDFProvider: (providerId) => {
+          if (isFamilyBuddyEmbeddedMode()) {
+            set({ pdfProviderId: 'familybuddy-pdf' as PDFProviderId });
+            return;
+          }
+          set({ pdfProviderId: providerId });
+        },
 
         setPDFProviderConfig: (providerId, config) =>
           set((state) => ({
@@ -916,13 +1001,25 @@ export const useSettingsStore = create<SettingsState>()(
         // Image Generation actions
         setImageProvider: (providerId) =>
           set(() => {
+            if (isFamilyBuddyEmbeddedMode()) {
+              return {
+                imageProviderId: 'familybuddy-image' as ImageProviderId,
+                imageModelId: 'familybuddy-managed-image',
+              };
+            }
             const models = IMAGE_PROVIDERS[providerId]?.models || [];
             return {
               imageProviderId: providerId,
               imageModelId: models[0]?.id || '',
             };
           }),
-        setImageModelId: (modelId) => set({ imageModelId: modelId }),
+        setImageModelId: (modelId) => {
+          if (isFamilyBuddyEmbeddedMode()) {
+            set({ imageModelId: 'familybuddy-managed-image' });
+            return;
+          }
+          set({ imageModelId: modelId });
+        },
 
         setImageProviderConfig: (providerId, config) =>
           set((state) => ({
@@ -936,8 +1033,23 @@ export const useSettingsStore = create<SettingsState>()(
           })),
 
         // Video Generation actions
-        setVideoProvider: (providerId) => set({ videoProviderId: providerId }),
-        setVideoModelId: (modelId) => set({ videoModelId: modelId }),
+        setVideoProvider: (providerId) => {
+          if (isFamilyBuddyEmbeddedMode()) {
+            set({
+              videoProviderId: 'familybuddy-video' as VideoProviderId,
+              videoModelId: 'familybuddy-managed-video',
+            });
+            return;
+          }
+          set({ videoProviderId: providerId });
+        },
+        setVideoModelId: (modelId) => {
+          if (isFamilyBuddyEmbeddedMode()) {
+            set({ videoModelId: 'familybuddy-managed-video' });
+            return;
+          }
+          set({ videoModelId: modelId });
+        },
 
         setVideoProviderConfig: (providerId, config) =>
           set((state) => ({
@@ -1037,7 +1149,13 @@ export const useSettingsStore = create<SettingsState>()(
           }),
 
         // Web Search actions
-        setWebSearchProvider: (providerId) => set({ webSearchProviderId: providerId }),
+        setWebSearchProvider: (providerId) => {
+          if (isFamilyBuddyEmbeddedMode()) {
+            set({ webSearchProviderId: 'familybuddy-web-search' as WebSearchProviderId });
+            return;
+          }
+          set({ webSearchProviderId: providerId });
+        },
         setWebSearchProviderConfig: (providerId, config) =>
           set((state) => ({
             webSearchProvidersConfig: {
@@ -1074,6 +1192,7 @@ export const useSettingsStore = create<SettingsState>()(
               video: Record<string, { baseUrl?: string }>;
               webSearch: Record<string, { baseUrl?: string }>;
             };
+            const familyBuddyEmbedded = isFamilyBuddyEmbeddedMode();
 
             set((state) => {
               // Merge LLM providers
@@ -1248,6 +1367,35 @@ export const useSettingsStore = create<SettingsState>()(
                     };
                   }
                 }
+              }
+
+              if (familyBuddyEmbedded) {
+                const managedSelection = getFamilyBuddyManagedSelection();
+
+                if (newTTSConfig['familybuddy-tts']) {
+                  newTTSConfig['familybuddy-tts'] = {
+                    ...newTTSConfig['familybuddy-tts'],
+                    modelId: 'familybuddy-managed-tts',
+                  };
+                }
+                if (newASRConfig['familybuddy-asr']) {
+                  newASRConfig['familybuddy-asr'] = {
+                    ...newASRConfig['familybuddy-asr'],
+                    modelId: 'familybuddy-managed-asr',
+                  };
+                }
+
+                return {
+                  providersConfig: newProvidersConfig,
+                  ttsProvidersConfig: newTTSConfig,
+                  asrProvidersConfig: newASRConfig,
+                  pdfProvidersConfig: newPDFConfig,
+                  imageProvidersConfig: newImageConfig,
+                  videoProvidersConfig: newVideoConfig,
+                  webSearchProvidersConfig: newWebSearchConfig,
+                  autoConfigApplied: true,
+                  ...managedSelection,
+                };
               }
 
               // === Validate current selections against updated configs ===
@@ -1543,6 +1691,7 @@ export const useSettingsStore = create<SettingsState>()(
         promoteLegacyCustomProviderBaseUrls(state);
 
         // Ensure image/video configs have all built-in providers
+        ensureBuiltInPDFProviders(state);
         ensureBuiltInImageProviders(state);
         ensureBuiltInVideoProviders(state);
 
@@ -1565,6 +1714,7 @@ export const useSettingsStore = create<SettingsState>()(
           Object.assign(state, defaultAudioConfig);
         }
         ensureBuiltInAudioProviders(state);
+        ensureBuiltInPDFProviders(state);
         ensureBuiltInWebSearchProviders(state);
 
         // Migrate global ttsModelId to per-provider
@@ -1706,6 +1856,7 @@ export const useSettingsStore = create<SettingsState>()(
         ensureBuiltInProviders(merged as Partial<SettingsState>);
         promoteLegacyCustomProviderBaseUrls(merged as Partial<SettingsState>);
         ensureBuiltInAudioProviders(merged as Partial<SettingsState>);
+        ensureBuiltInPDFProviders(merged as Partial<SettingsState>);
         ensureBuiltInImageProviders(merged as Partial<SettingsState>);
         ensureBuiltInVideoProviders(merged as Partial<SettingsState>);
         ensureBuiltInWebSearchProviders(merged as Partial<SettingsState>);

@@ -147,6 +147,7 @@ function getTTSProviderName(providerId: TTSProviderId, t: (key: string) => strin
     'minimax-tts': t('settings.providerMiniMaxTTS'),
     'lemonade-tts': t('settings.providerLemonadeTTS'),
     'browser-native-tts': t('settings.providerBrowserNativeTTS'),
+    'familybuddy-tts': 'FamilyBuddy Managed TTS',
   };
   return names[providerId] || providerId;
 }
@@ -161,6 +162,7 @@ function getASRProviderName(providerId: ASRProviderId, t: (key: string) => strin
     'browser-native': t('settings.providerBrowserNative'),
     'qwen-asr': t('settings.providerQwenASR'),
     'lemonade-asr': t('settings.providerLemonadeASR'),
+    'familybuddy-asr': 'FamilyBuddy Managed ASR',
   };
   return names[providerId] || providerId;
 }
@@ -174,6 +176,7 @@ const IMAGE_PROVIDER_NAMES: Record<ImageProviderId, string> = {
   'minimax-image': 'providerMiniMaxImage',
   'grok-image': 'providerGrokImage',
   lemonade: 'providerLemonadeImage',
+  'familybuddy-image': 'providerFamilyBuddyImage',
 };
 
 const IMAGE_PROVIDER_ICONS: Record<ImageProviderId, string> = {
@@ -184,6 +187,7 @@ const IMAGE_PROVIDER_ICONS: Record<ImageProviderId, string> = {
   'minimax-image': '/logos/minimax.svg',
   'grok-image': '/logos/grok.svg',
   lemonade: '/logos/lemonade.svg',
+  'familybuddy-image': '/logos/openai.svg',
 };
 
 const VIDEO_PROVIDER_NAMES: Record<VideoProviderId, string> = {
@@ -194,6 +198,7 @@ const VIDEO_PROVIDER_NAMES: Record<VideoProviderId, string> = {
   'minimax-video': 'providerMiniMaxVideo',
   'grok-video': 'providerGrokVideo',
   happyhorse: 'providerHappyHorse',
+  'familybuddy-video': 'providerFamilyBuddyVideo',
 };
 
 const VIDEO_PROVIDER_ICONS: Record<VideoProviderId, string> = {
@@ -204,6 +209,7 @@ const VIDEO_PROVIDER_ICONS: Record<VideoProviderId, string> = {
   'minimax-video': '/logos/minimax.svg',
   'grok-video': '/logos/grok.svg',
   happyhorse: '/logos/qwen.svg',
+  'familybuddy-video': '/logos/openai.svg',
 };
 
 interface SettingsDialogProps {

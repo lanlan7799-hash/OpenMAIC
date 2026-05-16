@@ -47,6 +47,7 @@ function getTTSProviderName(providerId: TTSProviderId, t: (key: string) => strin
     'minimax-tts': t('settings.providerMiniMaxTTS'),
     'lemonade-tts': t('settings.providerLemonadeTTS'),
     'browser-native-tts': t('settings.providerBrowserNativeTTS'),
+    'familybuddy-tts': 'FamilyBuddy Managed TTS',
   };
   return names[providerId];
 }
@@ -57,6 +58,7 @@ function getASRProviderName(providerId: ASRProviderId, t: (key: string) => strin
     'browser-native': t('settings.providerBrowserNative'),
     'qwen-asr': t('settings.providerQwenASR'),
     'lemonade-asr': t('settings.providerLemonadeASR'),
+    'familybuddy-asr': 'FamilyBuddy Managed ASR',
   };
   return names[providerId];
 }

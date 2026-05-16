@@ -60,6 +60,12 @@ function clearProviderEnv() {
   delete process.env.TAVILY_API_KEY;
   delete process.env.BOCHA_API_KEY;
   delete process.env.BOCHA_BASE_URL;
+  delete process.env.FAMILYBUDDY_RELAY_BASE_URL;
+  delete process.env.FAMILYBUDDY_RELAY_TOKEN;
+  delete process.env.OPENMAIC_AI_RELAY_BASE_URL;
+  delete process.env.OPENMAIC_AI_RELAY_TOKEN;
+  delete process.env.FAMILYBUDDY_OPENMAIC_RELAY_BASE_URL;
+  delete process.env.OPENMAIC_LAUNCH_SECRET;
 }
 
 vi.mock('fs', async (importOriginal) => {
@@ -234,6 +240,61 @@ providers:
       const providers = getServerProviders();
 
       expect(providers.openai).toBeUndefined();
+    });
+
+    it('adds all FamilyBuddy-managed OpenMAIC capability providers from relay config', async () => {
+      vi.stubEnv('FAMILYBUDDY_RELAY_BASE_URL', 'https://familybuddy.cn/api/openmaic/ai/v1/');
+      vi.stubEnv('FAMILYBUDDY_RELAY_TOKEN', 'familybuddy-relay-token');
+      const {
+        getServerProviders,
+        getServerImageProviders,
+        getServerVideoProviders,
+        getServerTTSProviders,
+        getServerASRProviders,
+        getServerPDFProviders,
+        getServerWebSearchProviders,
+        resolveApiKey,
+        resolveImageApiKey,
+        resolveVideoApiKey,
+        resolveTTSApiKey,
+        resolveASRApiKey,
+        resolvePDFApiKey,
+        resolveWebSearchApiKey,
+      } = await import('@/lib/server/provider-config');
+
+      expect(getServerProviders().openai).toEqual({
+        baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1',
+        models: ['familybuddy-managed'],
+      });
+      expect(getServerImageProviders()['familybuddy-image']).toEqual({
+        baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1',
+        models: ['familybuddy-managed-image'],
+      });
+      expect(getServerVideoProviders()['familybuddy-video']).toEqual({
+        baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1',
+      });
+      expect(getServerTTSProviders()['familybuddy-tts']).toEqual({
+        baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1',
+      });
+      expect(getServerASRProviders()['familybuddy-asr']).toEqual({
+        baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1',
+      });
+      expect(getServerPDFProviders()['familybuddy-pdf']).toEqual({
+        baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1',
+      });
+      expect(getServerWebSearchProviders()['familybuddy-web-search']).toEqual({
+        baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1',
+      });
+
+      expect(resolveApiKey('openai')).toBe('familybuddy-relay-token');
+      expect(resolveImageApiKey('familybuddy-image')).toBe('familybuddy-relay-token');
+      expect(resolveVideoApiKey('familybuddy-video')).toBe('familybuddy-relay-token');
+      expect(resolveTTSApiKey('familybuddy-tts')).toBe('familybuddy-relay-token');
+      expect(resolveASRApiKey('familybuddy-asr')).toBe('familybuddy-relay-token');
+      expect(resolvePDFApiKey('familybuddy-pdf')).toBe('familybuddy-relay-token');
+      expect(resolveWebSearchApiKey('familybuddy-web-search', undefined)).toBe(
+        'familybuddy-relay-token',
+      );
     });
   });
 

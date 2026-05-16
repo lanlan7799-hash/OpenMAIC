@@ -133,6 +133,14 @@ export const IMAGE_PROVIDERS: Record<ImageProviderId, ImageProviderConfig> = {
     supportedAspectRatios: ['16:9', '4:3', '1:1', '9:16'],
     maxResolution: { width: 1024, height: 1024 },
   },
+  'familybuddy-image': {
+    id: 'familybuddy-image',
+    name: 'FamilyBuddy Managed Image',
+    requiresApiKey: true,
+    models: [{ id: 'familybuddy-managed-image', name: 'FamilyBuddy Managed Image' }],
+    supportedAspectRatios: ['16:9', '4:3', '1:1', '9:16'],
+    maxResolution: { width: 1024, height: 1024 },
+  },
 };
 
 export async function testImageConnectivity(
@@ -153,6 +161,13 @@ export async function testImageConnectivity(
       return testGrokImageConnectivity(config);
     case 'lemonade':
       return testLemonadeImageConnectivity(config);
+    case 'familybuddy-image':
+      return {
+        success: Boolean(config.apiKey && config.baseUrl),
+        message: config.apiKey && config.baseUrl
+          ? 'Connected to FamilyBuddy image relay'
+          : 'FamilyBuddy image relay is not configured',
+      };
     default:
       return {
         success: false,
@@ -180,9 +195,55 @@ export async function generateImage(
       return generateWithGrokImage(config, options);
     case 'lemonade':
       return generateWithLemonadeImage(config, options);
+    case 'familybuddy-image':
+      return generateWithFamilyBuddyImage(config, options);
     default:
       throw new Error(`Unsupported image provider: ${config.providerId}`);
   }
+}
+
+async function generateWithFamilyBuddyImage(
+  config: ImageGenerationConfig,
+  options: ImageGenerationOptions,
+): Promise<ImageGenerationResult> {
+  const baseUrl = config.baseUrl?.replace(/\/$/, '');
+  if (!baseUrl) {
+    throw new Error('FamilyBuddy image relay base URL is required');
+  }
+
+  const width = options.width || 1024;
+  const height = options.height || 1024;
+  const response = await fetch(`${baseUrl}/images/generations`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${config.apiKey}`,
+    },
+    body: JSON.stringify({
+      model: config.model || 'familybuddy-managed-image',
+      prompt: options.prompt,
+      n: 1,
+      size: `${width}x${height}`,
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => response.statusText);
+    throw new Error(`FamilyBuddy image generation failed (${response.status}): ${text}`);
+  }
+
+  const data = await response.json();
+  const imageData = data.data?.[0] ?? data.result;
+  if (!imageData?.url && !imageData?.b64_json && !imageData?.base64) {
+    throw new Error('FamilyBuddy image relay returned empty image response');
+  }
+
+  return {
+    url: imageData.url,
+    base64: imageData.b64_json || imageData.base64,
+    width,
+    height,
+  };
 }
 
 export function aspectRatioToDimensions(

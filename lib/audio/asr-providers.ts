@@ -185,12 +185,50 @@ export async function transcribeAudio(
     case 'lemonade-asr':
       return await transcribeLemonadeASR(config, audioBuffer);
 
+    case 'familybuddy-asr':
+      return await transcribeFamilyBuddyASR(config, audioBuffer);
+
     default:
       if (isCustomASRProvider(config.providerId)) {
         return await transcribeOpenAIWhisper(config, audioBuffer);
       }
       throw new Error(`Unsupported ASR provider: ${config.providerId}`);
   }
+}
+
+async function transcribeFamilyBuddyASR(
+  config: ASRModelConfig,
+  audioBuffer: Buffer | Blob,
+): Promise<ASRTranscriptionResult> {
+  const baseUrl = config.baseUrl?.replace(/\/$/, '');
+  if (!baseUrl) {
+    throw new Error('FamilyBuddy ASR relay base URL is required');
+  }
+
+  const audioBlob = await toAudioBlob(audioBuffer);
+  const formData = new FormData();
+  formData.set('file', audioBlob, audioBlob instanceof File ? audioBlob.name : 'audio.webm');
+  formData.set('model', config.modelId || 'familybuddy-managed-asr');
+  if (config.language && config.language !== 'auto') {
+    formData.set('language', config.language);
+  }
+
+  const response = await fetch(`${baseUrl}/audio/transcriptions`, {
+    method: 'POST',
+    headers: getOptionalBearerAuthHeaders(config.apiKey),
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => response.statusText);
+    if (errorText.includes('audio is empty') || errorText.includes('too short')) {
+      return { text: '' };
+    }
+    throw new Error(`FamilyBuddy ASR API error: ${errorText || response.statusText}`);
+  }
+
+  const data = await response.json();
+  return { text: typeof data.text === 'string' ? data.text : '' };
 }
 
 /**
