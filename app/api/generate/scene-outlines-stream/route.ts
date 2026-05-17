@@ -35,6 +35,7 @@ import type {
 import { apiError } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
 import { resolveModelFromRequest } from '@/lib/server/resolve-model';
+import { reportOpenMaicRuntimeDiagnostic } from '@/lib/server/familybuddy-diagnostics';
 const log = createLogger('Outlines Stream');
 
 export const maxDuration = 300;
@@ -137,6 +138,7 @@ export async function POST(req: NextRequest) {
       model: languageModel,
       modelInfo,
       modelString,
+      providerId,
       thinkingConfig,
     } = await resolveModelFromRequest(req, body);
     resolvedModelString = modelString;
@@ -281,6 +283,8 @@ export async function POST(req: NextRequest) {
           let parsedOutlines: SceneOutline[] = [];
           let languageDirective: string | null = null;
           let lastError: string | undefined;
+          let lastDiagnosticsPreview = '';
+          const generationStartedAt = Date.now();
 
           for (let attempt = 1; attempt <= MAX_STREAM_RETRIES + 1; attempt++) {
             try {
@@ -335,6 +339,7 @@ export async function POST(req: NextRequest) {
               lastError = fullText.trim()
                 ? 'LLM response could not be parsed into outlines'
                 : 'LLM returned empty response';
+              lastDiagnosticsPreview = `attempt=${attempt}; textLen=${fullText.length}; outlines=${parsedOutlines.length}; languageDirective=${languageDirective ? 'yes' : 'no'}; preview=${JSON.stringify(fullText.slice(0, 240))}`;
               log.warn(
                 `Outlines attempt ${attempt} diagnostics: textLen=${fullText.length}, outlines=${parsedOutlines.length}, languageDirective=${languageDirective ? 'yes' : 'no'}, preview=${JSON.stringify(fullText.slice(0, 240))}`,
               );
@@ -388,6 +393,24 @@ export async function POST(req: NextRequest) {
             log.error(
               `Outline generation failed after ${MAX_STREAM_RETRIES + 1} attempts: ${lastError}`,
             );
+            void reportOpenMaicRuntimeDiagnostic({
+              operation: 'scene_outlines_stream',
+              providerId,
+              modelString,
+              errorMessage: lastError || 'Failed to generate outlines',
+              upstreamErrorBody: lastDiagnosticsPreview || undefined,
+              durationMs: Date.now() - generationStartedAt,
+              requestSize: JSON.stringify({
+                requirement: requirements.requirement,
+                pdfTextLength: pdfText?.length ?? 0,
+                pdfImageCount: pdfImages?.length ?? 0,
+                researchContextLength: researchContext?.length ?? 0,
+                interactiveMode,
+              }).length,
+              responseSize: 0,
+              requestMessageCount: 1,
+              hasMultimodalContent: !!visionImages?.length,
+            });
             const errorEvent = JSON.stringify({
               type: 'error',
               error: lastError || 'Failed to generate outlines',

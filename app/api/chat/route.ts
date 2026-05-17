@@ -20,6 +20,7 @@ import { apiError } from '@/lib/server/api-response';
 import { createLogger } from '@/lib/logger';
 import { resolveModel } from '@/lib/server/resolve-model';
 import type { ThinkingConfig } from '@/lib/types/provider';
+import { reportOpenMaicRuntimeDiagnostic } from '@/lib/server/familybuddy-diagnostics';
 const log = createLogger('Chat API');
 
 // Allow streaming responses up to 60 seconds
@@ -68,6 +69,7 @@ export async function POST(req: NextRequest) {
       model: languageModel,
       apiKey: resolvedApiKey,
       providerId,
+      modelString,
     } = await resolveModel({
       modelString: body.model,
       apiKey: body.apiKey,
@@ -86,6 +88,7 @@ export async function POST(req: NextRequest) {
 
     // Use the native request signal for abort propagation
     const signal = req.signal;
+    const chatStartedAt = Date.now();
 
     // Create SSE stream
     const { readable, writable } = new TransformStream();
@@ -162,6 +165,21 @@ export async function POST(req: NextRequest) {
           `Chat stream error [model=${body.model ?? 'unknown'}, agents=${body.config?.agentIds?.length ?? 0}, messages=${body.messages?.length ?? 0}]:`,
           error,
         );
+        void reportOpenMaicRuntimeDiagnostic({
+          operation: 'chat_stream',
+          providerId,
+          modelString,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          durationMs: Date.now() - chatStartedAt,
+          requestSize: JSON.stringify({
+            messageCount: body.messages?.length ?? 0,
+            agentCount: body.config?.agentIds?.length ?? 0,
+            sessionType: body.config?.sessionType,
+          }).length,
+          responseSize: 0,
+          requestMessageCount: body.messages?.length ?? 0,
+          hasMultimodalContent: JSON.stringify(body.messages ?? []).includes('image'),
+        });
 
         // Try to send error event
         try {
