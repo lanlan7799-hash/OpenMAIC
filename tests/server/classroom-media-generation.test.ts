@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest';
-import { replaceMediaPlaceholders } from '@/lib/server/classroom-media-generation';
+import {
+  getPreferredClassroomTTSProviderId,
+  replaceMediaPlaceholders,
+} from '@/lib/server/classroom-media-generation';
 import type { Scene } from '@/lib/types/stage';
 
 function slideScene(
@@ -41,5 +44,17 @@ describe('classroom media placeholder replacement', () => {
     };
     const video = content.canvas.elements[0];
     expect(video.src).toBe('https://example.com/direct.mp4');
+  });
+});
+
+describe('classroom TTS provider selection', () => {
+  test('prefers FamilyBuddy managed TTS over other server providers', () => {
+    expect(getPreferredClassroomTTSProviderId(['qwen-tts', 'familybuddy-tts'])).toBe(
+      'familybuddy-tts',
+    );
+  });
+
+  test('falls back to the first configured provider when FamilyBuddy is unavailable', () => {
+    expect(getPreferredClassroomTTSProviderId(['qwen-tts', 'openai-tts'])).toBe('qwen-tts');
   });
 });

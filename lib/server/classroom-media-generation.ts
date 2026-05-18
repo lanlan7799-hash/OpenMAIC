@@ -230,7 +230,7 @@ export async function generateTTSForClassroom(
     return;
   }
 
-  const providerId = ttsProviderIds[0] as TTSProviderId;
+  const providerId = getPreferredClassroomTTSProviderId(ttsProviderIds) as TTSProviderId;
   const apiKey = resolveTTSApiKey(providerId);
   const ttsProvider = TTS_PROVIDERS[providerId as keyof typeof TTS_PROVIDERS];
   if (ttsProvider?.requiresApiKey && !apiKey) {
@@ -285,4 +285,8 @@ export async function generateTTSForClassroom(
       }
     }
   }
+}
+
+export function getPreferredClassroomTTSProviderId(ttsProviderIds: string[]): string | undefined {
+  return ttsProviderIds.includes('familybuddy-tts') ? 'familybuddy-tts' : ttsProviderIds[0];
 }

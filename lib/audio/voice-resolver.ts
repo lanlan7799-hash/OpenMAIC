@@ -15,6 +15,12 @@ export interface ResolvedVoice {
   voiceId: string;
 }
 
+function getPreferredFallbackProvider(availableProviders: ProviderWithVoices[]) {
+  return (
+    availableProviders.find((p) => p.providerId === 'familybuddy-tts') || availableProviders[0]
+  );
+}
+
 /**
  * Resolve the TTS provider + voice for an agent.
  * 1. If agent has voiceConfig and the voice is still valid, use it
@@ -51,8 +57,8 @@ export function resolveAgentVoice(
   }
 
   // Fallback: first available provider, deterministic voice
-  if (availableProviders.length > 0) {
-    const first = availableProviders[0];
+  const first = getPreferredFallbackProvider(availableProviders);
+  if (first) {
     return {
       providerId: first.providerId,
       voiceId: first.voices[agentIndex % first.voices.length].id,

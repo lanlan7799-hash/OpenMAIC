@@ -91,28 +91,40 @@ export function useDiscussionTTS({ enabled, agents, onAudioStateChange }: Discus
   const resolveVoiceForAgent = useCallback(
     (agentId: string | null): ResolvedVoice => {
       const providers = getAvailableProvidersWithVoices(ttsProvidersConfig, voxcpmProfiles);
+      const familyBuddyProvider = providers.find((p) => p.providerId === 'familybuddy-tts');
+      const familyBuddyConfig = ttsProvidersConfig['familybuddy-tts'];
       if (!agentId) {
-        if (providers.length > 0) {
+        const firstProvider = familyBuddyProvider || providers[0];
+        if (firstProvider) {
           return {
-            providerId: providers[0].providerId,
-            voiceId: providers[0].voices[0]?.id ?? 'default',
+            providerId: firstProvider.providerId,
+            voiceId: firstProvider.voices[0]?.id ?? 'default',
           };
         }
         return { providerId: 'browser-native-tts', voiceId: 'default' };
       }
       const agent = agents.find((a) => a.id === agentId);
       if (!agent) {
-        if (providers.length > 0) {
+        const firstProvider = familyBuddyProvider || providers[0];
+        if (firstProvider) {
           return {
-            providerId: providers[0].providerId,
-            voiceId: providers[0].voices[0]?.id ?? 'default',
+            providerId: firstProvider.providerId,
+            voiceId: firstProvider.voices[0]?.id ?? 'default',
             modelId: undefined,
           };
         }
         return { providerId: 'browser-native-tts', voiceId: 'default', modelId: undefined };
       }
-      // Teacher: always use global lecture voice (single source of truth with settings)
+      // In FamilyBuddy launches, prefer the managed relay so stale local TTS
+      // choices (for example qwen-tts) cannot mute classroom discussion.
       if (agent.role === 'teacher') {
+        if (familyBuddyProvider && familyBuddyConfig?.isServerConfigured) {
+          return {
+            providerId: 'familybuddy-tts',
+            voiceId: familyBuddyProvider.voices[0]?.id ?? 'default',
+            modelId: familyBuddyConfig.modelId,
+          };
+        }
         return {
           providerId: globalTtsProviderId,
           voiceId: globalTtsVoice,
