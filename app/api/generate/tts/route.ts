@@ -20,10 +20,6 @@ const log = createLogger('TTS API');
 
 export const maxDuration = 30;
 
-function normalizeBaseUrl(value: string | undefined) {
-  return value?.trim().replace(/\/+$/, '') || '';
-}
-
 export async function POST(req: NextRequest) {
   let ttsProviderId: string | undefined;
   let ttsVoice: string | undefined;
@@ -84,8 +80,7 @@ export async function POST(req: NextRequest) {
     const serverBaseUrl = resolveTTSBaseUrl(ttsProviderId);
     const usesFamilyBuddyServerRelay =
       ttsProviderId === 'familybuddy-tts' &&
-      !!clientBaseUrl &&
-      normalizeBaseUrl(clientBaseUrl) === normalizeBaseUrl(serverBaseUrl);
+      Boolean(serverBaseUrl);
     const apiKey =
       clientBaseUrl && !usesFamilyBuddyServerRelay
         ? ttsApiKey || ''
@@ -93,7 +88,7 @@ export async function POST(req: NextRequest) {
     const baseUrl =
       clientBaseUrl && !usesFamilyBuddyServerRelay
         ? clientBaseUrl
-        : resolveTTSBaseUrl(ttsProviderId, ttsBaseUrl || undefined);
+        : serverBaseUrl || resolveTTSBaseUrl(ttsProviderId, ttsBaseUrl || undefined);
 
     // Build TTS config
     const config = {

@@ -68,4 +68,30 @@ describe('POST /api/generate/tts', () => {
       '请朗读这句话',
     );
   });
+
+  it('uses server FamilyBuddy relay credentials when client sends a different public relay URL', async () => {
+    vi.stubEnv('FAMILYBUDDY_RELAY_BASE_URL', 'http://172.17.0.1:4000/api/openmaic/ai/v1');
+    vi.stubEnv('FAMILYBUDDY_RELAY_TOKEN', 'familybuddy-relay-token');
+
+    const res = await postTTS({
+      text: '请朗读这句话',
+      audioId: 'discussion-part-2',
+      ttsProviderId: 'familybuddy-tts',
+      ttsModelId: 'familybuddy-managed-tts',
+      ttsVoice: 'default',
+      ttsBaseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1',
+    });
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(mocks.generateTTS).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: 'familybuddy-tts',
+        apiKey: 'familybuddy-relay-token',
+        baseUrl: 'http://172.17.0.1:4000/api/openmaic/ai/v1',
+      }),
+      '请朗读这句话',
+    );
+  });
 });
