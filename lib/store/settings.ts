@@ -8,7 +8,7 @@ import { persist } from 'zustand/middleware';
 import type { ProviderId } from '@/lib/ai/providers';
 import type { ProvidersConfig } from '@/lib/types/settings';
 import { PROVIDERS } from '@/lib/ai/providers';
-import type { ThinkingConfig } from '@/lib/types/provider';
+import type { ModelInfo, ThinkingConfig } from '@/lib/types/provider';
 import { getThinkingConfigKey, supportsConfigurableThinking } from '@/lib/ai/thinking-config';
 import type { TTSProviderId, ASRProviderId, BuiltInTTSProviderId } from '@/lib/audio/types';
 import { isCustomTTSProvider, isCustomASRProvider } from '@/lib/audio/types';
@@ -549,14 +549,14 @@ function hasUserProviderConfig(config: { apiKey?: string; baseUrl?: string } | u
 }
 
 function hasModel(
-  models: Array<{ id: string; name?: string }>,
+  models: ModelInfo[],
   modelId: string,
 ) {
   return models.some((model) => model.id === modelId);
 }
 
 function ensureModelAvailable(
-  models: Array<{ id: string; name?: string }>,
+  models: ModelInfo[],
   modelId: string,
 ) {
   if (!modelId || hasModel(models, modelId)) return models;
