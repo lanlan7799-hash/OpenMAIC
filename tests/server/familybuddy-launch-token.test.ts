@@ -25,6 +25,11 @@ describe('FamilyBuddy launch token', () => {
         childId: 'child-001',
         mode: 'familybuddy_embedded',
         aiRelayUrl: 'http://127.0.0.1:4000/api/openmaic/ai/v1/chat/completions',
+        aiRelayBaseUrl: 'http://127.0.0.1:4000/api/openmaic/ai/v1',
+        ttsRelayUrl: 'http://127.0.0.1:4000/api/openmaic/ai/v1/audio/speech',
+        speechSynthesisRuntime: 'cloud',
+        speechSynthesisProvider: 'minimax',
+        speechSynthesisModel: 'speech-02-turbo',
         returnUrl: 'http://127.0.0.1:3005/learning/self-study',
         iat: 1_800_000_000,
         exp: 1_800_003_600,
@@ -43,6 +48,9 @@ describe('FamilyBuddy launch token', () => {
         aud: 'openmaic',
         childId: 'child-001',
         mode: 'familybuddy_embedded',
+        aiRelayBaseUrl: 'http://127.0.0.1:4000/api/openmaic/ai/v1',
+        ttsRelayUrl: 'http://127.0.0.1:4000/api/openmaic/ai/v1/audio/speech',
+        speechSynthesisRuntime: 'cloud',
       },
     });
   });

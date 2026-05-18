@@ -476,7 +476,53 @@ export function isFamilyBuddyEmbeddedMode(): boolean {
   return params.get('familyBuddy') === '1' || params.get('embedded') === '1';
 }
 
+function normalizeFamilyBuddyRelayBaseUrl(value: string | null | undefined) {
+  return value?.trim().replace(/\/+$/, '') || '';
+}
+
+function deriveFamilyBuddyRelayBaseUrlFromEndpoint(
+  value: string | null | undefined,
+  endpointPath: string,
+) {
+  const normalizedValue = normalizeFamilyBuddyRelayBaseUrl(value);
+  const normalizedEndpointPath = endpointPath.replace(/^\/+/, '');
+  const suffix = `/${normalizedEndpointPath}`;
+
+  return normalizedValue.endsWith(suffix)
+    ? normalizedValue.slice(0, -suffix.length)
+    : '';
+}
+
+function getFamilyBuddyLaunchConfig() {
+  if (typeof window === 'undefined') {
+    return {
+      relayBaseUrl: '',
+      speechSynthesisRuntime: 'cloud' as const,
+      speechSynthesisModel: '',
+    };
+  }
+
+  const params = new URLSearchParams(window.location?.search || '');
+  const relayBaseUrl =
+    normalizeFamilyBuddyRelayBaseUrl(params.get('aiRelayBaseUrl')) ||
+    deriveFamilyBuddyRelayBaseUrlFromEndpoint(params.get('ttsRelayUrl'), '/audio/speech') ||
+    deriveFamilyBuddyRelayBaseUrlFromEndpoint(params.get('aiRelayUrl'), '/chat/completions');
+  const speechSynthesisRuntime =
+    params.get('speechSynthesisRuntime') === 'browser_web_speech'
+      ? 'browser_web_speech'
+      : 'cloud';
+  const speechSynthesisModel = params.get('speechSynthesisModel')?.trim() || '';
+
+  return {
+    relayBaseUrl,
+    speechSynthesisRuntime,
+    speechSynthesisModel,
+  };
+}
+
 function getFamilyBuddyManagedSelection() {
+  const launchConfig = getFamilyBuddyLaunchConfig();
+
   return {
     providerId: 'openai' as ProviderId,
     modelId: 'familybuddy-managed',
@@ -484,7 +530,11 @@ function getFamilyBuddyManagedSelection() {
     imageModelId: 'familybuddy-managed-image',
     videoProviderId: 'familybuddy-video' as VideoProviderId,
     videoModelId: 'familybuddy-managed-video',
-    ttsProviderId: 'familybuddy-tts' as TTSProviderId,
+    ttsProviderId: (
+      launchConfig.speechSynthesisRuntime === 'browser_web_speech'
+        ? 'browser-native-tts'
+        : 'familybuddy-tts'
+    ) as TTSProviderId,
     ttsVoice: 'default',
     asrProviderId: 'familybuddy-asr' as ASRProviderId,
     pdfProviderId: 'familybuddy-pdf' as PDFProviderId,
@@ -492,6 +542,26 @@ function getFamilyBuddyManagedSelection() {
     imageGenerationEnabled: true,
     videoGenerationEnabled: true,
   };
+}
+
+function hasUserProviderConfig(config: { apiKey?: string; baseUrl?: string } | undefined) {
+  return Boolean(config?.apiKey?.trim() || config?.baseUrl?.trim());
+}
+
+function hasModel(
+  models: Array<{ id: string; name?: string }>,
+  modelId: string,
+) {
+  return models.some((model) => model.id === modelId);
+}
+
+function ensureModelAvailable(
+  models: Array<{ id: string; name?: string }>,
+  modelId: string,
+) {
+  if (!modelId || hasModel(models, modelId)) return models;
+
+  return [...models, { id: modelId, name: modelId }];
 }
 
 /**
@@ -843,14 +913,7 @@ export const useSettingsStore = create<SettingsState>()(
         ...defaultWebSearchConfig,
 
         // Actions
-        setModel: (providerId, modelId) => {
-          if (isFamilyBuddyEmbeddedMode()) {
-            const managed = getFamilyBuddyManagedSelection();
-            set({ providerId: managed.providerId, modelId: managed.modelId });
-            return;
-          }
-          set({ providerId, modelId });
-        },
+        setModel: (providerId, modelId) => set({ providerId, modelId }),
 
         setThinkingConfig: (providerId, modelId, config) =>
           set((state) => {
@@ -909,12 +972,6 @@ export const useSettingsStore = create<SettingsState>()(
         // Audio actions
         setTTSProvider: (providerId) =>
           set((state) => {
-            if (isFamilyBuddyEmbeddedMode()) {
-              return {
-                ttsProviderId: 'familybuddy-tts' as TTSProviderId,
-                ttsVoice: 'default',
-              };
-            }
             // If switching provider, set default voice for that provider
             const shouldUpdateVoice = state.ttsProviderId !== providerId;
             const defaultVoice = isCustomTTSProvider(providerId)
@@ -934,12 +991,6 @@ export const useSettingsStore = create<SettingsState>()(
         // (e.g. browser-native uses BCP-47 "en-US", OpenAI Whisper uses ISO 639-1 "en")
         setASRProvider: (providerId) =>
           set((state) => {
-            if (isFamilyBuddyEmbeddedMode()) {
-              return {
-                asrProviderId: 'familybuddy-asr' as ASRProviderId,
-                asrLanguage: state.asrLanguage,
-              };
-            }
             let supportedLanguages: string[];
             if (isCustomASRProvider(providerId)) {
               supportedLanguages = ['auto'];
@@ -979,13 +1030,7 @@ export const useSettingsStore = create<SettingsState>()(
           })),
 
         // PDF actions
-        setPDFProvider: (providerId) => {
-          if (isFamilyBuddyEmbeddedMode()) {
-            set({ pdfProviderId: 'familybuddy-pdf' as PDFProviderId });
-            return;
-          }
-          set({ pdfProviderId: providerId });
-        },
+        setPDFProvider: (providerId) => set({ pdfProviderId: providerId }),
 
         setPDFProviderConfig: (providerId, config) =>
           set((state) => ({
@@ -1001,25 +1046,13 @@ export const useSettingsStore = create<SettingsState>()(
         // Image Generation actions
         setImageProvider: (providerId) =>
           set(() => {
-            if (isFamilyBuddyEmbeddedMode()) {
-              return {
-                imageProviderId: 'familybuddy-image' as ImageProviderId,
-                imageModelId: 'familybuddy-managed-image',
-              };
-            }
             const models = IMAGE_PROVIDERS[providerId]?.models || [];
             return {
               imageProviderId: providerId,
               imageModelId: models[0]?.id || '',
             };
           }),
-        setImageModelId: (modelId) => {
-          if (isFamilyBuddyEmbeddedMode()) {
-            set({ imageModelId: 'familybuddy-managed-image' });
-            return;
-          }
-          set({ imageModelId: modelId });
-        },
+        setImageModelId: (modelId) => set({ imageModelId: modelId }),
 
         setImageProviderConfig: (providerId, config) =>
           set((state) => ({
@@ -1033,23 +1066,8 @@ export const useSettingsStore = create<SettingsState>()(
           })),
 
         // Video Generation actions
-        setVideoProvider: (providerId) => {
-          if (isFamilyBuddyEmbeddedMode()) {
-            set({
-              videoProviderId: 'familybuddy-video' as VideoProviderId,
-              videoModelId: 'familybuddy-managed-video',
-            });
-            return;
-          }
-          set({ videoProviderId: providerId });
-        },
-        setVideoModelId: (modelId) => {
-          if (isFamilyBuddyEmbeddedMode()) {
-            set({ videoModelId: 'familybuddy-managed-video' });
-            return;
-          }
-          set({ videoModelId: modelId });
-        },
+        setVideoProvider: (providerId) => set({ videoProviderId: providerId }),
+        setVideoModelId: (modelId) => set({ videoModelId: modelId }),
 
         setVideoProviderConfig: (providerId, config) =>
           set((state) => ({
@@ -1149,13 +1167,7 @@ export const useSettingsStore = create<SettingsState>()(
           }),
 
         // Web Search actions
-        setWebSearchProvider: (providerId) => {
-          if (isFamilyBuddyEmbeddedMode()) {
-            set({ webSearchProviderId: 'familybuddy-web-search' as WebSearchProviderId });
-            return;
-          }
-          set({ webSearchProviderId: providerId });
-        },
+        setWebSearchProvider: (providerId) => set({ webSearchProviderId: providerId }),
         setWebSearchProviderConfig: (providerId, config) =>
           set((state) => ({
             webSearchProvidersConfig: {
@@ -1371,11 +1383,62 @@ export const useSettingsStore = create<SettingsState>()(
 
               if (familyBuddyEmbedded) {
                 const managedSelection = getFamilyBuddyManagedSelection();
+                const launchConfig = getFamilyBuddyLaunchConfig();
+                const stateProviderId = state.providerId as ProviderId;
+                const stateTTSProviderId = state.ttsProviderId as TTSProviderId;
+                const stateASRProviderId = state.asrProviderId as ASRProviderId;
+                const statePDFProviderId = state.pdfProviderId as PDFProviderId;
+                const stateImageProviderId = state.imageProviderId as ImageProviderId;
+                const stateVideoProviderId = state.videoProviderId as VideoProviderId;
+                const stateWebSearchProviderId = state.webSearchProviderId as WebSearchProviderId;
+
+                const useUserLLM =
+                  state.modelId !== managedSelection.modelId &&
+                  hasUserProviderConfig(newProvidersConfig[stateProviderId]);
+                const useUserTTS =
+                  stateTTSProviderId !== managedSelection.ttsProviderId &&
+                  hasUserProviderConfig(newTTSConfig[stateTTSProviderId]);
+                const useUserASR =
+                  stateASRProviderId !== managedSelection.asrProviderId &&
+                  hasUserProviderConfig(newASRConfig[stateASRProviderId]);
+                const useUserPDF =
+                  statePDFProviderId !== managedSelection.pdfProviderId &&
+                  hasUserProviderConfig(newPDFConfig[statePDFProviderId]);
+                const useUserImage =
+                  stateImageProviderId !== managedSelection.imageProviderId &&
+                  hasUserProviderConfig(newImageConfig[stateImageProviderId]);
+                const useUserVideo =
+                  stateVideoProviderId !== managedSelection.videoProviderId &&
+                  hasUserProviderConfig(newVideoConfig[stateVideoProviderId]);
+                const useUserWebSearch =
+                  stateWebSearchProviderId !== managedSelection.webSearchProviderId &&
+                  hasUserProviderConfig(newWebSearchConfig[stateWebSearchProviderId]);
+
+                if (useUserLLM && newProvidersConfig[stateProviderId]) {
+                  const registryModels = PROVIDERS[stateProviderId]?.models ?? [];
+                  newProvidersConfig[stateProviderId] = {
+                    ...newProvidersConfig[stateProviderId],
+                    isServerConfigured: false,
+                    serverModels: undefined,
+                    serverBaseUrl: undefined,
+                    models: ensureModelAvailable(
+                      registryModels.length
+                        ? registryModels
+                        : newProvidersConfig[stateProviderId].models,
+                      state.modelId,
+                    ),
+                  };
+                }
 
                 if (newTTSConfig['familybuddy-tts']) {
                   newTTSConfig['familybuddy-tts'] = {
                     ...newTTSConfig['familybuddy-tts'],
-                    modelId: 'familybuddy-managed-tts',
+                    enabled: true,
+                    isServerConfigured: true,
+                    modelId: launchConfig.speechSynthesisModel || 'familybuddy-managed-tts',
+                    serverBaseUrl:
+                      launchConfig.relayBaseUrl ||
+                      newTTSConfig['familybuddy-tts'].serverBaseUrl,
                   };
                 }
                 if (newASRConfig['familybuddy-asr']) {
@@ -1394,7 +1457,39 @@ export const useSettingsStore = create<SettingsState>()(
                   videoProvidersConfig: newVideoConfig,
                   webSearchProvidersConfig: newWebSearchConfig,
                   autoConfigApplied: true,
-                  ...managedSelection,
+                  providerId: useUserLLM ? stateProviderId : managedSelection.providerId,
+                  modelId: useUserLLM ? state.modelId : managedSelection.modelId,
+                  imageProviderId: useUserImage
+                    ? stateImageProviderId
+                    : managedSelection.imageProviderId,
+                  imageModelId: useUserImage
+                    ? state.imageModelId
+                    : managedSelection.imageModelId,
+                  videoProviderId: useUserVideo
+                    ? stateVideoProviderId
+                    : managedSelection.videoProviderId,
+                  videoModelId: useUserVideo
+                    ? state.videoModelId
+                    : managedSelection.videoModelId,
+                  ttsProviderId: useUserTTS
+                    ? stateTTSProviderId
+                    : managedSelection.ttsProviderId,
+                  ttsVoice: useUserTTS ? state.ttsVoice : managedSelection.ttsVoice,
+                  asrProviderId: useUserASR
+                    ? stateASRProviderId
+                    : managedSelection.asrProviderId,
+                  pdfProviderId: useUserPDF
+                    ? statePDFProviderId
+                    : managedSelection.pdfProviderId,
+                  webSearchProviderId: useUserWebSearch
+                    ? stateWebSearchProviderId
+                    : managedSelection.webSearchProviderId,
+                  imageGenerationEnabled: useUserImage
+                    ? state.imageGenerationEnabled
+                    : managedSelection.imageGenerationEnabled,
+                  videoGenerationEnabled: useUserVideo
+                    ? state.videoGenerationEnabled
+                    : managedSelection.videoGenerationEnabled,
                 };
               }
 

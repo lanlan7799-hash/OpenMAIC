@@ -7,6 +7,11 @@ export interface FamilyBuddyLaunchPayload {
   mode: 'familybuddy_embedded';
   sub?: string;
   aiRelayUrl?: string;
+  aiRelayBaseUrl?: string;
+  ttsRelayUrl?: string;
+  speechSynthesisRuntime?: 'cloud' | 'browser_web_speech';
+  speechSynthesisProvider?: string;
+  speechSynthesisModel?: string;
   returnUrl?: string;
   iat?: number;
   exp: number;

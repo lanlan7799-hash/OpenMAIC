@@ -1064,16 +1064,53 @@ describe('fetchServerProviders — FamilyBuddy embedded managed mode', () => {
     return useSettingsStore;
   }
 
-  it('locks all model-capability providers to FamilyBuddy managed entries', async () => {
+  it('uses the FamilyBuddy relay base from launch params for discussion TTS', async () => {
+    vi.stubGlobal('window', {
+      localStorage: localStorageStub,
+      location: {
+        search:
+          '?familyBuddy=1&embedded=1&aiRelayBaseUrl=https%3A%2F%2Ffamilybuddy.cn%2Fapi%2Fopenmaic%2Fai%2Fv1&speechSynthesisRuntime=cloud&speechSynthesisModel=familybuddy-managed-tts',
+      },
+    });
     const store = await getStore();
 
-    store.getState().setModel('anthropic', 'claude-sonnet-4-6');
-    store.getState().setImageProvider('seedream');
-    store.getState().setVideoProvider('seedance');
-    store.getState().setTTSProvider('browser-native-tts');
-    store.getState().setASRProvider('browser-native');
-    store.getState().setPDFProvider('unpdf');
-    store.getState().setWebSearchProvider('tavily');
+    mockServerResponse({
+      providers: { openai: { models: ['familybuddy-managed'] } },
+    });
+
+    await store.getState().fetchServerProviders();
+
+    expect(store.getState().ttsProviderId).toBe('familybuddy-tts');
+    expect(store.getState().ttsVoice).toBe('default');
+    expect(store.getState().ttsProvidersConfig['familybuddy-tts']).toMatchObject({
+      enabled: true,
+      isServerConfigured: true,
+      modelId: 'familybuddy-managed-tts',
+      serverBaseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1',
+    });
+  });
+
+  it('uses browser native TTS when FamilyBuddy launch says speech synthesis is browser runtime', async () => {
+    vi.stubGlobal('window', {
+      localStorage: localStorageStub,
+      location: { search: '?familyBuddy=1&embedded=1&speechSynthesisRuntime=browser_web_speech' },
+    });
+    const store = await getStore();
+
+    store.getState().setTTSProvider('openai-tts');
+    mockServerResponse({
+      providers: { openai: { models: ['familybuddy-managed'] } },
+      tts: { 'familybuddy-tts': { baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1' } },
+    });
+
+    await store.getState().fetchServerProviders();
+
+    expect(store.getState().ttsProviderId).toBe('browser-native-tts');
+    expect(store.getState().ttsVoice).toBe('default');
+  });
+
+  it('uses FamilyBuddy managed entries as defaults when no user-specific config exists', async () => {
+    const store = await getStore();
 
     mockServerResponse({
       providers: { openai: { models: ['familybuddy-managed'] } },
@@ -1104,6 +1141,63 @@ describe('fetchServerProviders — FamilyBuddy embedded managed mode', () => {
       imageGenerationEnabled: true,
       videoGenerationEnabled: true,
     });
+  });
+
+  it('preserves user-specific model providers over FamilyBuddy managed defaults', async () => {
+    const store = await getStore();
+
+    store.getState().setProviderConfig('openai', {
+      apiKey: 'user-openai-key',
+      baseUrl: 'https://api.openai.com/v1',
+    });
+    store.getState().setModel('openai', 'gpt-4o');
+    store.getState().setTTSProviderConfig('openai-tts', {
+      apiKey: 'user-openai-tts-key',
+      modelId: 'gpt-4o-mini-tts',
+    });
+    store.getState().setTTSProvider('openai-tts');
+    store.getState().setASRProviderConfig('openai-whisper', {
+      apiKey: 'user-whisper-key',
+      modelId: 'gpt-4o-mini-transcribe',
+    });
+    store.getState().setASRProvider('openai-whisper');
+    store.getState().setPDFProviderConfig('mineru', { apiKey: 'user-mineru-key' });
+    store.getState().setPDFProvider('mineru');
+    store.getState().setImageProviderConfig('seedream', { apiKey: 'user-seedream-key' });
+    store.getState().setImageProvider('seedream');
+    store.getState().setVideoProviderConfig('seedance', { apiKey: 'user-seedance-key' });
+    store.getState().setVideoProvider('seedance');
+    store.getState().setWebSearchProviderConfig('tavily', { apiKey: 'user-tavily-key' });
+    store.getState().setWebSearchProvider('tavily');
+
+    mockServerResponse({
+      providers: { openai: { models: ['familybuddy-managed'] } },
+      image: { 'familybuddy-image': { baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1' } },
+      video: { 'familybuddy-video': { baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1' } },
+      tts: { 'familybuddy-tts': { baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1' } },
+      asr: { 'familybuddy-asr': { baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1' } },
+      pdf: { 'familybuddy-pdf': { baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1' } },
+      webSearch: {
+        'familybuddy-web-search': { baseUrl: 'https://familybuddy.cn/api/openmaic/ai/v1' },
+      },
+    });
+
+    await store.getState().fetchServerProviders();
+
+    expect(store.getState()).toMatchObject({
+      providerId: 'openai',
+      modelId: 'gpt-4o',
+      imageProviderId: 'seedream',
+      imageModelId: 'doubao-seedream-5-0-260128',
+      videoProviderId: 'seedance',
+      videoModelId: 'doubao-seedance-1-5-pro-251215',
+      ttsProviderId: 'openai-tts',
+      ttsVoice: 'alloy',
+      asrProviderId: 'openai-whisper',
+      pdfProviderId: 'mineru',
+      webSearchProviderId: 'tavily',
+    });
+    expect(store.getState().providersConfig.openai.models.map((m) => m.id)).toContain('gpt-4o');
   });
 });
 
