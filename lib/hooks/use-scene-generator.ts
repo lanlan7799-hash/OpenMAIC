@@ -13,8 +13,11 @@ import { splitLongSpeechActions } from '@/lib/audio/tts-utils';
 import { getVoxCPMProviderOptions } from '@/lib/audio/voxcpm-voices';
 import { generateMediaForOutlines } from '@/lib/media/media-orchestrator';
 import { createLogger } from '@/lib/logger';
+import { deferOutlineToQueueEnd } from '@/lib/generation/scene-generation-queue';
 
 const log = createLogger('SceneGenerator');
+const SCENE_STEP_ATTEMPTS = 2;
+const SCENE_STEP_RETRY_DELAY_MS = 1200;
 
 interface SceneContentResult {
   success: boolean;
@@ -61,6 +64,72 @@ function getApiHeaders(): HeadersInit {
 function withThinkingConfig<T extends Record<string, unknown>>(body: T): T {
   const { thinkingConfig } = getCurrentModelConfig();
   return thinkingConfig ? ({ ...body, thinkingConfig } as T) : body;
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+
+    const timeout = globalThis.setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        globalThis.clearTimeout(timeout);
+        reject(new DOMException('Aborted', 'AbortError'));
+      },
+      { once: true },
+    );
+  });
+}
+
+async function runSceneStepWithRetry<T extends { success: boolean; error?: string }>(
+  label: string,
+  outline: SceneOutline,
+  operation: () => Promise<T>,
+  isUsable: (result: T) => boolean,
+  signal?: AbortSignal,
+): Promise<T> {
+  let lastResult: T | undefined;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= SCENE_STEP_ATTEMPTS; attempt++) {
+    try {
+      const result = await operation();
+      if (isUsable(result)) return result;
+
+      lastResult = result;
+      log.warn(
+        `${label} failed for "${outline.title}" (attempt ${attempt}/${SCENE_STEP_ATTEMPTS})`,
+        {
+          error: result.error,
+        },
+      );
+    } catch (error) {
+      if (isAbortError(error) || signal?.aborted) throw error;
+      lastError = error;
+      log.warn(
+        `${label} threw for "${outline.title}" (attempt ${attempt}/${SCENE_STEP_ATTEMPTS})`,
+        {
+          error,
+        },
+      );
+    }
+
+    if (attempt < SCENE_STEP_ATTEMPTS) {
+      await sleep(SCENE_STEP_RETRY_DELAY_MS, signal);
+    }
+  }
+
+  if (lastResult) return lastResult;
+  const message = lastError instanceof Error ? lastError.message : String(lastError);
+  return { success: false, error: message || `${label} failed` } as T;
 }
 
 /** Call POST /api/generate/scene-content (step 1) */
@@ -279,6 +348,12 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
         if (!current.some((o) => o.id === outlineId)) return;
         store.getState().setGeneratingOutlines(current.filter((o) => o.id !== outlineId));
       };
+      const markOutlineFailedAndContinue = (outline: SceneOutline, error: string) => {
+        store.getState().addFailedOutline(outline);
+        const current = store.getState().generatingOutlines;
+        store.getState().setGeneratingOutlines(deferOutlineToQueueEnd(current, outline));
+        options.onSceneFailed?.(outline, error);
+      };
 
       // Create a new AbortController for this generation run
       fetchAbortRef.current = new AbortController();
@@ -329,6 +404,7 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
       // Serial generation loop — two-step per outline
       try {
         let pausedByFailureOrAbort = false;
+        let hasFailedOutlines = false;
         for (const outline of pending) {
           if (abortRef.current || store.getState().generationEpoch !== startEpoch) {
             store.getState().setGenerationStatus('paused');
@@ -340,17 +416,24 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
 
           // Step 1: Generate content
           options.onPhaseChange?.('content', outline);
-          const contentResult = await fetchSceneContent(
-            {
-              outline,
-              allOutlines: outlines,
-              stageId: stage.id,
-              pdfImages: params.pdfImages,
-              imageMapping: params.imageMapping,
-              stageInfo: params.stageInfo,
-              agents: params.agents,
-              languageDirective: params.languageDirective,
-            },
+          const contentResult = await runSceneStepWithRetry(
+            'Content generation',
+            outline,
+            () =>
+              fetchSceneContent(
+                {
+                  outline,
+                  allOutlines: outlines,
+                  stageId: stage.id,
+                  pdfImages: params.pdfImages,
+                  imageMapping: params.imageMapping,
+                  stageInfo: params.stageInfo,
+                  agents: params.agents,
+                  languageDirective: params.languageDirective,
+                },
+                signal,
+              ),
+            (result) => result.success && !!result.content,
             signal,
           );
 
@@ -359,11 +442,12 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
               pausedByFailureOrAbort = true;
               break;
             }
-            store.getState().addFailedOutline(outline);
-            options.onSceneFailed?.(outline, contentResult.error || 'Content generation failed');
-            store.getState().setGenerationStatus('paused');
-            pausedByFailureOrAbort = true;
-            break;
+            hasFailedOutlines = true;
+            markOutlineFailedAndContinue(
+              outline,
+              contentResult.error || 'Content generation failed',
+            );
+            continue;
           }
 
           if (abortRef.current || store.getState().generationEpoch !== startEpoch) {
@@ -374,17 +458,24 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
 
           // Step 2: Generate actions + assemble scene
           options.onPhaseChange?.('actions', outline);
-          const actionsResult = await fetchSceneActions(
-            {
-              outline: contentResult.effectiveOutline || outline,
-              allOutlines: outlines,
-              content: contentResult.content,
-              stageId: stage.id,
-              agents: params.agents,
-              previousSpeeches,
-              userProfile: params.userProfile,
-              languageDirective: params.languageDirective,
-            },
+          const actionsResult = await runSceneStepWithRetry(
+            'Actions generation',
+            outline,
+            () =>
+              fetchSceneActions(
+                {
+                  outline: contentResult.effectiveOutline || outline,
+                  allOutlines: outlines,
+                  content: contentResult.content,
+                  stageId: stage.id,
+                  agents: params.agents,
+                  previousSpeeches,
+                  userProfile: params.userProfile,
+                  languageDirective: params.languageDirective,
+                },
+                signal,
+              ),
+            (result) => result.success && !!result.scene,
             signal,
           );
 
@@ -404,11 +495,9 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
                   pausedByFailureOrAbort = true;
                   break;
                 }
-                store.getState().addFailedOutline(outline);
-                options.onSceneFailed?.(outline, ttsResult.error || 'TTS generation failed');
-                store.getState().setGenerationStatus('paused');
-                pausedByFailureOrAbort = true;
-                break;
+                hasFailedOutlines = true;
+                markOutlineFailedAndContinue(outline, ttsResult.error || 'TTS generation failed');
+                continue;
               }
             }
 
@@ -427,15 +516,18 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
               pausedByFailureOrAbort = true;
               break;
             }
-            store.getState().addFailedOutline(outline);
-            options.onSceneFailed?.(outline, actionsResult.error || 'Actions generation failed');
-            store.getState().setGenerationStatus('paused');
-            pausedByFailureOrAbort = true;
-            break;
+            hasFailedOutlines = true;
+            markOutlineFailedAndContinue(
+              outline,
+              actionsResult.error || 'Actions generation failed',
+            );
+            continue;
           }
         }
 
-        if (!abortRef.current && !pausedByFailureOrAbort) {
+        if (!abortRef.current && !pausedByFailureOrAbort && hasFailedOutlines) {
+          store.getState().setGenerationStatus('paused');
+        } else if (!abortRef.current && !pausedByFailureOrAbort) {
           store.getState().setGenerationStatus('completed');
           store.getState().setGeneratingOutlines([]);
           options.onComplete?.();
@@ -511,6 +603,7 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
 
         if (!contentResult.success || !contentResult.content) {
           store.getState().addFailedOutline(outline);
+          store.getState().setGenerationStatus('paused');
           return;
         }
 
@@ -539,6 +632,7 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
 
         if (!actionsResult.success || !actionsResult.scene) {
           store.getState().addFailedOutline(outline);
+          store.getState().setGenerationStatus('paused');
           return;
         }
 
@@ -552,6 +646,7 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
           );
           if (!ttsResult.success) {
             store.getState().addFailedOutline(outline);
+            store.getState().setGenerationStatus('paused');
             return;
           }
         }
@@ -562,10 +657,16 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
         // Resume remaining generation if there are pending outlines
         if (store.getState().generatingOutlines.length > 0 && lastParamsRef.current) {
           generateRemainingRef.current?.(lastParamsRef.current);
+        } else if (store.getState().failedOutlines.length === 0) {
+          store.getState().setGenerationStatus('completed');
+          options.onComplete?.();
+        } else {
+          store.getState().setGenerationStatus('paused');
         }
       } catch (err) {
         if (!(err instanceof DOMException && err.name === 'AbortError')) {
           store.getState().addFailedOutline(outline);
+          store.getState().setGenerationStatus('paused');
         }
       }
     },

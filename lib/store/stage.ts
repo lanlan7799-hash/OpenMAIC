@@ -4,6 +4,7 @@ import { createSelectors } from '@/lib/utils/create-selectors';
 import type { ChatSession } from '@/lib/types/chat';
 import type { SceneOutline } from '@/lib/types/generation';
 import { createLogger } from '@/lib/logger';
+import { removeOutlineFromQueue, upsertSceneByOrder } from '@/lib/generation/scene-generation-queue';
 
 const log = createLogger('StageStore');
 
@@ -140,7 +141,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
       );
       return;
     }
-    const scenes = [...get().scenes, scene];
+    const scenes = upsertSceneByOrder(get().scenes, scene);
     // Remove the matching outline from generatingOutlines (match by order)
     const generatingOutlines = get().generatingOutlines.filter((o) => o.order !== scene.order);
     // Auto-switch from pending page to the newly generated scene
@@ -228,6 +229,7 @@ const useStageStoreBase = create<StageState>()((set, get) => ({
   retryFailedOutline: (outlineId) => {
     set({
       failedOutlines: get().failedOutlines.filter((o) => o.id !== outlineId),
+      generatingOutlines: removeOutlineFromQueue(get().generatingOutlines, outlineId),
     });
   },
 

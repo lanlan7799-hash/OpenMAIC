@@ -54,4 +54,24 @@ describe('json-repair targeted fixes', () => {
     expect(parsed?.elements[0]?.height).toBe(58);
     expect(parsed?.elements[0]?.content).toBe('<p>literal text: height: 58</p>');
   });
+
+  it('repairs unescaped quotes inside Chinese teacher action text', () => {
+    const raw = `{
+  "actions": [
+    {
+      "id": "intro",
+      "type": "speech",
+      "content": "同学们好！今天我们来玩一个有趣的游戏——数方格！在生活中，我们要测量桌面、黑板的大小，就需要用到"面积"这个概念。面积就是物体表面的大小。",
+      "label": "介绍活动"
+    }
+  ]
+}`;
+
+    const parsed = parseJsonResponse<{
+      actions: Array<{ content: string }>;
+    }>(raw);
+
+    expect(parsed).not.toBeNull();
+    expect(parsed?.actions[0]?.content).toContain('"面积"这个概念');
+  });
 });
