@@ -10,6 +10,7 @@ export type WebSearchProviderId =
   | 'bocha'
   | 'brave'
   | 'baidu'
+  | 'minimax'
   | 'familybuddy-web-search';
 
 /**
