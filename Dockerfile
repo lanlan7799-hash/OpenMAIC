@@ -21,10 +21,8 @@ COPY packages/ ./packages/
 RUN pnpm install --frozen-lockfile
 
 # ---- Stage 3: Builder ----
-FROM base AS builder
+FROM deps AS builder
 
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/packages ./packages
 COPY . .
 
 RUN pnpm build
