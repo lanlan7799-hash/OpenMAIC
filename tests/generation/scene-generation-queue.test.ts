@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { deferOutlineToQueueEnd, upsertSceneByOrder } from '@/lib/generation/scene-generation-queue';
+import {
+  deferOutlineToQueueEnd,
+  getRetryableOutline,
+  isRetryableOutline,
+  upsertSceneByOrder,
+} from '@/lib/generation/scene-generation-queue';
 
 describe('scene generation queue helpers', () => {
   it('moves a failed outline behind the remaining pending outlines', () => {
@@ -10,11 +15,7 @@ describe('scene generation queue helpers', () => {
 
     const nextQueue = deferOutlineToQueueEnd([page4, page5, page6], page4);
 
-    expect(nextQueue.map((outline) => outline.id)).toEqual([
-      'outline-5',
-      'outline-6',
-      'outline-4',
-    ]);
+    expect(nextQueue.map((outline) => outline.id)).toEqual(['outline-5', 'outline-6', 'outline-4']);
   });
 
   it('keeps scenes ordered when a skipped failed outline is retried later', () => {
@@ -47,5 +48,50 @@ describe('scene generation queue helpers', () => {
       { id: 'new-scene-4', order: 4, title: '数方格小游戏' },
       { id: 'scene-5', order: 5, title: '长方形面积公式' },
     ]);
+  });
+
+  it('treats a failed outline as retryable', () => {
+    const outline = { id: 'outline-5', order: 5, title: '诗意地图' };
+
+    expect(
+      getRetryableOutline(
+        {
+          failedOutlines: [outline],
+          generatingOutlines: [],
+          generationStatus: 'paused',
+        },
+        outline.id,
+      ),
+    ).toBe(outline);
+  });
+
+  it('treats a paused pending outline as retryable even when it is not failed', () => {
+    const outline = { id: 'outline-5', order: 5, title: '诗意地图' };
+
+    expect(
+      isRetryableOutline(
+        {
+          failedOutlines: [],
+          generatingOutlines: [outline],
+          generationStatus: 'paused',
+        },
+        outline.id,
+      ),
+    ).toBe(true);
+  });
+
+  it('does not treat an actively generating outline as retryable', () => {
+    const outline = { id: 'outline-5', order: 5, title: '诗意地图' };
+
+    expect(
+      isRetryableOutline(
+        {
+          failedOutlines: [],
+          generatingOutlines: [outline],
+          generationStatus: 'generating',
+        },
+        outline.id,
+      ),
+    ).toBe(false);
   });
 });

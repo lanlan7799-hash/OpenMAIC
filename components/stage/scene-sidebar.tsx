@@ -20,6 +20,7 @@ import { useStageStore, useCanvasStore } from '@/lib/store';
 import { useI18n } from '@/lib/hooks/use-i18n';
 import type { SceneType, SlideContent, InteractiveContent } from '@/lib/types/stage';
 import { PENDING_SCENE_ID } from '@/lib/store/stage';
+import { isRetryableOutline } from '@/lib/generation/scene-generation-queue';
 
 interface SceneSidebarProps {
   readonly collapsed: boolean;
@@ -339,7 +340,10 @@ export function SceneSidebar({
           {generatingOutlines.length > 0 &&
             (() => {
               const outline = generatingOutlines[0];
-              const isFailed = failedOutlines.some((f) => f.id === outline.id);
+              const isFailed = isRetryableOutline(
+                { failedOutlines, generatingOutlines, generationStatus },
+                outline.id,
+              );
               const isRetrying = retryingOutlineId === outline.id;
               const isPaused = generationStatus === 'paused';
               const isActive = currentSceneId === PENDING_SCENE_ID;

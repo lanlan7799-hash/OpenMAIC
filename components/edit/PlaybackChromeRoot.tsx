@@ -27,6 +27,7 @@ import { useWidgetIframeStore } from '@/lib/store/widget-iframe';
 import type { AudioIndicatorState } from '@/components/roundtable/audio-indicator';
 import type { Action, DiscussionAction, SpeechAction } from '@/lib/types/action';
 import { cn } from '@/lib/utils';
+import { isRetryableOutline } from '@/lib/generation/scene-generation-queue';
 // Playback state persistence removed — refresh always starts from the beginning
 import { ChatArea, type ChatAreaRef } from '@/components/chat/chat-area';
 import { agentsToParticipants, useAgentRegistry } from '@/lib/orchestration/registry/store';
@@ -80,6 +81,7 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
       setCurrentSceneId,
       generatingOutlines,
       outlines,
+      generationStatus,
     } = useStageStore();
     const failedOutlines = useStageStore.use.failedOutlines();
 
@@ -1085,7 +1087,12 @@ export const PlaybackChromeRoot = forwardRef<PlaybackChromeRootHandle, PlaybackC
               isPendingScene={isPendingScene}
               isCourseComplete={isCourseComplete}
               isGenerationFailed={
-                isPendingScene && failedOutlines.some((f) => f.id === generatingOutlines[0]?.id)
+                isPendingScene &&
+                !!generatingOutlines[0] &&
+                isRetryableOutline(
+                  { failedOutlines, generatingOutlines, generationStatus },
+                  generatingOutlines[0].id,
+                )
               }
               onRetryGeneration={
                 onRetryOutline && generatingOutlines[0]

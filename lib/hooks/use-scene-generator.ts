@@ -14,7 +14,10 @@ import { splitLongSpeechActions } from '@/lib/audio/tts-utils';
 import { getVoxCPMProviderOptions } from '@/lib/audio/voxcpm-voices';
 import { generateMediaForOutlines } from '@/lib/media/media-orchestrator';
 import { createLogger } from '@/lib/logger';
-import { deferOutlineToQueueEnd } from '@/lib/generation/scene-generation-queue';
+import {
+  deferOutlineToQueueEnd,
+  getRetryableOutline,
+} from '@/lib/generation/scene-generation-queue';
 
 const log = createLogger('SceneGenerator');
 const SCENE_STEP_ATTEMPTS = 2;
@@ -69,6 +72,38 @@ function withThinkingConfig<T extends Record<string, unknown>>(body: T): T {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function getStoredGenerationParams(): Partial<GenerationParams> {
+  if (typeof window === 'undefined') return {};
+  const raw = window.sessionStorage.getItem('generationParams');
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as Partial<GenerationParams>;
+  } catch (error) {
+    log.warn('Failed to parse stored generation params:', error);
+    return {};
+  }
+}
+
+function resolveGenerationParams(params: GenerationParams | null): GenerationParams | null {
+  if (params) return params;
+
+  const stage = useStageStore.getState().stage;
+  if (!stage) return null;
+
+  const stored = getStoredGenerationParams();
+  return {
+    ...stored,
+    stageInfo: {
+      name: stage.name || '',
+      description: stage.description,
+      style: stage.style,
+      language: stage.languageDirective,
+      ...stored.stageInfo,
+    },
+    languageDirective: stored.languageDirective || stage.languageDirective,
+  };
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -402,10 +437,12 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
       }
 
       // Serial generation loop — two-step per outline
+      let activeOutline: SceneOutline | null = null;
       try {
         let pausedByFailureOrAbort = false;
         let hasFailedOutlines = false;
         for (const outline of pending) {
+          activeOutline = outline;
           if (abortRef.current || store.getState().generationEpoch !== startEpoch) {
             store.getState().setGenerationStatus('paused');
             pausedByFailureOrAbort = true;
@@ -447,8 +484,11 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
               outline,
               contentResult.error || 'Content generation failed',
             );
+            activeOutline = null;
             continue;
           }
+
+          log.info(`Content generation ready for "${outline.title}", requesting actions`);
 
           if (abortRef.current || store.getState().generationEpoch !== startEpoch) {
             store.getState().setGenerationStatus('paused');
@@ -479,6 +519,10 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
             signal,
           );
 
+          log.info(
+            `Actions generation finished for "${outline.title}" (success=${actionsResult.success})`,
+          );
+
           if (actionsResult.success && actionsResult.scene) {
             const scene = actionsResult.scene;
             const settings = useSettingsStore.getState();
@@ -497,6 +541,7 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
                 }
                 hasFailedOutlines = true;
                 markOutlineFailedAndContinue(outline, ttsResult.error || 'TTS generation failed');
+                activeOutline = null;
                 continue;
               }
             }
@@ -509,6 +554,7 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
 
             removeGeneratingOutline(outline.id);
             store.getState().addScene(scene);
+            activeOutline = null;
             options.onSceneGenerated?.(scene, outline.order);
             previousSpeeches = actionsResult.previousSpeeches || [];
           } else {
@@ -521,10 +567,10 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
               outline,
               actionsResult.error || 'Actions generation failed',
             );
+            activeOutline = null;
             continue;
           }
         }
-
         if (!abortRef.current && !pausedByFailureOrAbort && hasFailedOutlines) {
           store.getState().setGenerationStatus('paused');
         } else if (!abortRef.current && !pausedByFailureOrAbort) {
@@ -538,7 +584,14 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
           log.info('Generation aborted');
           store.getState().setGenerationStatus('paused');
         } else {
-          throw err;
+          log.error('Generation stopped unexpectedly:', err);
+          if (activeOutline) {
+            markOutlineFailedAndContinue(
+              activeOutline,
+              err instanceof Error ? err.message : 'Generation stopped unexpectedly',
+            );
+          }
+          store.getState().setGenerationStatus('paused');
         }
       } finally {
         generatingRef.current = false;
@@ -564,9 +617,10 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
   const retrySingleOutline = useCallback(
     async (outlineId: string) => {
       const state = store.getState();
-      const outline = state.failedOutlines.find((o) => o.id === outlineId);
-      const params = lastParamsRef.current;
+      const outline = getRetryableOutline(state, outlineId);
+      const params = resolveGenerationParams(lastParamsRef.current);
       if (!outline || !state.stage || !params) return;
+      lastParamsRef.current = params;
 
       // Regen-lock (#571): never silently replace a scene that is open in
       // edit mode. Failed outlines have no completed scene yet so this is
@@ -603,17 +657,24 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
 
       try {
         // Step 1: Content
-        const contentResult = await fetchSceneContent(
-          {
-            outline,
-            allOutlines: state.outlines,
-            stageId: state.stage.id,
-            pdfImages: params.pdfImages,
-            imageMapping: params.imageMapping,
-            stageInfo: params.stageInfo,
-            agents: params.agents,
-            languageDirective: params.languageDirective,
-          },
+        const contentResult = await runSceneStepWithRetry(
+          'Retry content generation',
+          outline,
+          () =>
+            fetchSceneContent(
+              {
+                outline,
+                allOutlines: state.outlines,
+                stageId: state.stage!.id,
+                pdfImages: params.pdfImages,
+                imageMapping: params.imageMapping,
+                stageInfo: params.stageInfo,
+                agents: params.agents,
+                languageDirective: params.languageDirective,
+              },
+              signal,
+            ),
+          (result) => result.success && !!result.content,
           signal,
         );
 
@@ -632,17 +693,24 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
               .map((a) => a.text)
           : [];
 
-        const actionsResult = await fetchSceneActions(
-          {
-            outline: contentResult.effectiveOutline || outline,
-            allOutlines: state.outlines,
-            content: contentResult.content,
-            stageId: state.stage.id,
-            agents: params.agents,
-            previousSpeeches,
-            userProfile: params.userProfile,
-            languageDirective: params.languageDirective,
-          },
+        const actionsResult = await runSceneStepWithRetry(
+          'Retry actions generation',
+          outline,
+          () =>
+            fetchSceneActions(
+              {
+                outline: contentResult.effectiveOutline || outline,
+                allOutlines: state.outlines,
+                content: contentResult.content,
+                stageId: state.stage!.id,
+                agents: params.agents,
+                previousSpeeches,
+                userProfile: params.userProfile,
+                languageDirective: params.languageDirective,
+              },
+              signal,
+            ),
+          (result) => result.success && !!result.scene,
           signal,
         );
 
@@ -686,7 +754,7 @@ export function useSceneGenerator(options: UseSceneGeneratorOptions = {}) {
         }
       }
     },
-    [store],
+    [options, store],
   );
 
   return { generateRemaining, retrySingleOutline, stop, isGenerating };

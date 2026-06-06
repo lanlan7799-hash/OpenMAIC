@@ -84,7 +84,7 @@ export async function middleware(request: NextRequest) {
       const nowSeconds = Math.floor(Date.now() / 1000);
       response.cookies.set(FAMILYBUDDY_LAUNCH_COOKIE, launchToken, {
         httpOnly: true,
-        sameSite: 'lax',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         path: '/',
         maxAge: Math.max(0, verification.payload.exp - nowSeconds),
         secure: process.env.NODE_ENV === 'production',
